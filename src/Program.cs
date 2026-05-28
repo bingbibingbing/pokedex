@@ -151,7 +151,7 @@ namespace PodexDesktop
             var split = new SplitContainer
             {
                 Dock = DockStyle.Fill,
-                SplitterDistance = 520,
+                SplitterDistance = 640,
                 BackColor = Color.FromArgb(244, 234, 216)
             };
             mainSplit = split;
@@ -194,9 +194,10 @@ namespace PodexDesktop
         private void ApplyOriginalLikeSplitter()
         {
             if (mainSplit == null || mainSplit.Width <= 0) return;
-            int rightWidth = 450;
-            int target = Math.Max(500, mainSplit.Width - rightWidth - mainSplit.SplitterWidth);
-            int maxTarget = mainSplit.Width - 360 - mainSplit.SplitterWidth;
+            mainSplit.Panel1MinSize = 520;
+            mainSplit.Panel2MinSize = 420;
+            int target = Math.Min(640, Math.Max(520, mainSplit.Width - 560 - mainSplit.SplitterWidth));
+            int maxTarget = mainSplit.Width - mainSplit.Panel2MinSize - mainSplit.SplitterWidth;
             if (target > maxTarget) target = maxTarget;
             if (target > 0) mainSplit.SplitterDistance = target;
         }
@@ -754,6 +755,7 @@ namespace PodexDesktop
         {
             details.SuspendLayout();
             details.Controls.Clear();
+            details.AutoScroll = !(tag is PokemonEntry);
             if (tag is PokemonEntry) ShowPokemon((PokemonEntry)tag);
             else if (tag is MoveEntry) ShowMove((MoveEntry)tag);
             else if (tag is AbilityEntry) ShowAbility((AbilityEntry)tag);
@@ -787,19 +789,42 @@ namespace PodexDesktop
 
         private void ShowPokemon(PokemonEntry p)
         {
-            var stack = StartDetail(LocalName(p.names), DexNumber(p.nationalDex) + " / " + EnglishName(p.names) + FormSuffix(p));
-            stack.Controls.Add(MakeBadgeLine(p.types));
+            var page = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 2,
+                BackColor = Color.FromArgb(255, 250, 237),
+                Margin = new Padding(0)
+            };
+            page.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            page.RowStyles.Add(new RowStyle(SizeType.Absolute, 116));
+            page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+            var header = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
+                BackColor = Color.FromArgb(255, 250, 237),
+                Margin = new Padding(0)
+            };
+            header.Controls.Add(MakeTitle(LocalName(p.names)));
+            header.Controls.Add(MakeMutedLabel(DexNumber(p.nationalDex) + " / " + EnglishName(p.names) + FormSuffix(p)));
+            header.Controls.Add(MakeBadgeLine(p.types));
 
             var tabs = new TabControl
             {
-                Width = DetailContentWidth(),
-                Height = Math.Max(520, details.ClientSize.Height - 135),
-                Margin = new Padding(0, 12, 0, 0)
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0)
             };
             tabs.TabPages.Add(BuildPokemonInfoTab(p));
             tabs.TabPages.Add(BuildPokemonFilterTab(p));
             tabs.TabPages.Add(BuildPokemonMoveFilterTab(p));
-            stack.Controls.Add(tabs);
+
+            page.Controls.Add(header, 0, 0);
+            page.Controls.Add(tabs, 0, 1);
+            details.Controls.Add(page);
         }
 
         private TabPage BuildPokemonInfoTab(PokemonEntry p)
@@ -815,9 +840,9 @@ namespace PodexDesktop
                 BackColor = Color.FromArgb(255, 250, 237)
             };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 108));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 104));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 94));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 86));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             page.Controls.Add(layout);
@@ -970,7 +995,7 @@ namespace PodexDesktop
             var panel = new FlowLayoutPanel
             {
                 AutoSize = true,
-                Width = 380,
+                Dock = DockStyle.Fill,
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = false,
                 Margin = new Padding(0, 2, 0, 6)
@@ -992,7 +1017,7 @@ namespace PodexDesktop
             {
                 Text = string.IsNullOrWhiteSpace(name) ? "---" : name,
                 AutoSize = false,
-                Width = 124,
+                Width = 132,
                 Height = 25,
                 TextAlign = ContentAlignment.MiddleCenter,
                 BackColor = ability == null ? Color.FromArgb(220, 220, 220) : Color.FromArgb(216, 230, 247),
@@ -1109,7 +1134,7 @@ namespace PodexDesktop
         {
             var grid = new DataGridView
             {
-                Width = 380,
+                Width = 760,
                 Height = 96,
                 Dock = DockStyle.Fill,
                 ReadOnly = true,
@@ -1123,14 +1148,19 @@ namespace PodexDesktop
                 BorderStyle = BorderStyle.FixedSingle,
                 ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
                 ColumnHeadersHeight = 22,
-                RowTemplate = { Height = 23 },
+                RowTemplate = { Height = 20 },
                 Margin = new Padding(0, 0, 0, 6)
             };
-            grid.Columns.Add(MakeImageColumn("fromIcon", "", 32));
-            grid.Columns.Add(MakeTextColumn("arrow", "→", 24));
-            grid.Columns.Add(MakeImageColumn("toIcon", "", 32));
-            grid.Columns.Add(MakeTextColumn("path", "", 132));
-            grid.Columns.Add(MakeTextColumn("summary", "说明", 190));
+            grid.Columns.Add(MakeImageColumn("fromIcon", "", 38));
+            grid.Columns.Add(MakeTextColumn("arrow", "→", 28));
+            grid.Columns.Add(MakeImageColumn("toIcon", "", 38));
+            grid.Columns.Add(MakeTextColumn("path", "", 190));
+            grid.Columns.Add(MakeTextColumn("summary", "说明", 360));
+            grid.Resize += delegate
+            {
+                int fixedWidth = 38 + 28 + 38 + 190 + 24;
+                grid.Columns["summary"].Width = Math.Max(160, grid.ClientSize.Width - fixedWidth);
+            };
             grid.CellDoubleClick += delegate(object sender, DataGridViewCellEventArgs e)
             {
                 if (e.RowIndex >= 0 && e.RowIndex < grid.Rows.Count && grid.Rows[e.RowIndex].Tag is int)
@@ -1188,7 +1218,7 @@ namespace PodexDesktop
             var panel = new FlowLayoutPanel
             {
                 AutoSize = !fillParent,
-                Width = fillParent ? 380 : 780,
+                Width = fillParent ? 760 : 780,
                 Dock = fillParent ? DockStyle.Fill : DockStyle.None,
                 FlowDirection = FlowDirection.TopDown,
                 WrapContents = false,
@@ -1199,7 +1229,7 @@ namespace PodexDesktop
             var toolbar = new FlowLayoutPanel
             {
                 AutoSize = true,
-                Width = fillParent ? 380 : 760,
+                Width = fillParent ? 760 : 760,
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = false,
                 Margin = new Padding(0, 0, 0, 4)
@@ -1219,6 +1249,7 @@ namespace PodexDesktop
                     grid.Width = Math.Max(260, panel.ClientSize.Width - 2);
                     toolbar.Width = Math.Max(260, panel.ClientSize.Width - 2);
                     grid.Height = Math.Max(80, panel.ClientSize.Height - toolbar.Height - 8);
+                    ResizeLegacyMoveGridColumns(grid);
                 };
             }
 
@@ -1274,7 +1305,7 @@ namespace PodexDesktop
         {
             var grid = new DataGridView
             {
-                Width = fillParent ? 380 : 760,
+                Width = fillParent ? 760 : 760,
                 Height = fillParent ? 150 : LegacyMoveGridHeight(),
                 Dock = fillParent ? DockStyle.None : DockStyle.None,
                 ReadOnly = true,
@@ -1303,7 +1334,24 @@ namespace PodexDesktop
             {
                 column.SortMode = DataGridViewColumnSortMode.Programmatic;
             }
+            grid.Resize += delegate { ResizeLegacyMoveGridColumns(grid); };
             return grid;
+        }
+
+        private static void ResizeLegacyMoveGridColumns(DataGridView grid)
+        {
+            if (grid.Columns.Count < 9) return;
+            int fixedWidth =
+                grid.Columns["level"].Width +
+                grid.Columns["type"].Width +
+                grid.Columns["category"].Width +
+                grid.Columns["power"].Width +
+                grid.Columns["accuracy"].Width +
+                grid.Columns["pp"].Width +
+                grid.Columns["range"].Width +
+                grid.Columns["priority"].Width +
+                24;
+            grid.Columns["move"].Width = Math.Max(110, grid.ClientSize.Width - fixedWidth);
         }
 
         private int LegacyMoveGridHeight()
