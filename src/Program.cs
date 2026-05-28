@@ -772,12 +772,17 @@ namespace PodexDesktop
                 AutoSize = true,
                 FlowDirection = FlowDirection.TopDown,
                 WrapContents = false,
-                Width = Math.Max(680, details.ClientSize.Width - 60)
+                Width = DetailContentWidth()
             };
             stack.Controls.Add(MakeTitle(heading));
             stack.Controls.Add(MakeMutedLabel(subheading));
             details.Controls.Add(stack);
             return stack;
+        }
+
+        private int DetailContentWidth()
+        {
+            return Math.Max(360, details.ClientSize.Width - details.Padding.Horizontal - 12);
         }
 
         private void ShowPokemon(PokemonEntry p)
@@ -787,7 +792,7 @@ namespace PodexDesktop
 
             var tabs = new TabControl
             {
-                Width = Math.Max(760, details.ClientSize.Width - 70),
+                Width = DetailContentWidth(),
                 Height = Math.Max(520, details.ClientSize.Height - 135),
                 Margin = new Padding(0, 12, 0, 0)
             };
@@ -800,14 +805,127 @@ namespace PodexDesktop
         private TabPage BuildPokemonInfoTab(PokemonEntry p)
         {
             var page = MakeTabPage("信息");
-            var stack = MakeTabStack();
-            page.Controls.Add(stack);
-            stack.Controls.Add(MakeImageDescriptionPanel(PokemonImagePath(p.legacyId, true), LocalName(p.descriptions), 96, 96));
-            stack.Controls.Add(MakeAbilityBar(p));
-            stack.Controls.Add(MakeDefenseBlock(p));
-            stack.Controls.Add(MakeLegacyEvolutionGrid(p));
-            stack.Controls.Add(MakeLegacyMoveSection(p));
+            page.Padding = new Padding(4);
+
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 4,
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 108));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 104));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+            page.Controls.Add(layout);
+            layout.Controls.Add(MakeLegacyInfoFrame(MakeLegacyDescriptionSection(p), new Padding(0, 0, 0, 4)), 0, 0);
+            layout.Controls.Add(MakeLegacyInfoFrame(MakeLegacyAbilityDefenseSection(p), new Padding(0, 0, 0, 4)), 0, 1);
+            layout.Controls.Add(MakeLegacyInfoFrame(MakeLegacyEvolutionGrid(p), new Padding(0, 0, 0, 4)), 0, 2);
+            layout.Controls.Add(MakeLegacyInfoFrame(MakeLegacyMoveSection(p, true), new Padding(0)), 0, 3);
             return page;
+        }
+
+        private Control MakeLegacyInfoFrame(Control content, Padding margin)
+        {
+            var frame = new Panel
+            {
+                Dock = DockStyle.Fill,
+                Margin = margin,
+                Padding = new Padding(4),
+                BorderStyle = BorderStyle.FixedSingle,
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            content.Dock = DockStyle.Fill;
+            content.Margin = new Padding(0);
+            frame.Controls.Add(content);
+            return frame;
+        }
+
+        private Control MakeLegacyDescriptionSection(PokemonEntry p)
+        {
+            var table = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1,
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112));
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+            var picture = new PictureBox
+            {
+                Dock = DockStyle.Fill,
+                BorderStyle = BorderStyle.FixedSingle,
+                SizeMode = PictureBoxSizeMode.CenterImage,
+                BackColor = Color.White,
+                Margin = new Padding(8, 6, 8, 6)
+            };
+            string imagePath = PokemonImagePath(p.legacyId, true);
+            if (!string.IsNullOrWhiteSpace(imagePath) && File.Exists(imagePath))
+            {
+                picture.Image = Image.FromFile(imagePath);
+            }
+
+            var description = new TextBox
+            {
+                Dock = DockStyle.Fill,
+                Multiline = true,
+                ReadOnly = true,
+                BorderStyle = BorderStyle.None,
+                ScrollBars = ScrollBars.Vertical,
+                BackColor = Color.FromArgb(255, 250, 237),
+                ForeColor = Color.FromArgb(23, 32, 27),
+                Font = new Font("Segoe UI", 10f),
+                Text = string.IsNullOrWhiteSpace(LocalName(p.descriptions)) ? "暂无描述。" : LocalName(p.descriptions),
+                Margin = new Padding(4, 8, 4, 4)
+            };
+
+            table.Controls.Add(picture, 0, 0);
+            table.Controls.Add(description, 1, 0);
+            return table;
+        }
+
+        private Control MakeLegacyAbilityDefenseSection(PokemonEntry p)
+        {
+            var panel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+
+            var abilityBar = MakeAbilityBar(p);
+            abilityBar.Dock = DockStyle.Top;
+            abilityBar.Height = 31;
+            abilityBar.Margin = new Padding(0);
+
+            var defenseLine = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1,
+                BackColor = Color.FromArgb(255, 250, 237),
+                Margin = new Padding(0)
+            };
+            defenseLine.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 52));
+            defenseLine.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            defenseLine.Controls.Add(new Label
+            {
+                Text = "防御时",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.TopLeft,
+                ForeColor = Color.FromArgb(23, 32, 27),
+                Font = new Font("Segoe UI", 9f),
+                Margin = new Padding(0, 4, 0, 0)
+            }, 0, 0);
+            defenseLine.Controls.Add(MakeDefenseMatrix(p), 1, 0);
+
+            panel.Controls.Add(defenseLine);
+            panel.Controls.Add(abilityBar);
+            return panel;
         }
 
         private TabPage BuildPokemonFilterTab(PokemonEntry p)
@@ -843,7 +961,7 @@ namespace PodexDesktop
             var stack = MakeTabStack();
             page.Controls.Add(stack);
             stack.Controls.Add(MakeBodyLabel("这里用于按招式反查学习方式。当前先保持原版入口，信息页下方已按版本显示招式列表。"));
-            stack.Controls.Add(MakeLegacyMoveSection(p));
+            stack.Controls.Add(MakeLegacyMoveSection(p, false));
             return page;
         }
 
@@ -852,7 +970,7 @@ namespace PodexDesktop
             var panel = new FlowLayoutPanel
             {
                 AutoSize = true,
-                Width = 760,
+                Width = 380,
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = false,
                 Margin = new Padding(0, 2, 0, 6)
@@ -874,7 +992,7 @@ namespace PodexDesktop
             {
                 Text = string.IsNullOrWhiteSpace(name) ? "---" : name,
                 AutoSize = false,
-                Width = 132,
+                Width = 124,
                 Height = 25,
                 TextAlign = ContentAlignment.MiddleCenter,
                 BackColor = ability == null ? Color.FromArgb(220, 220, 220) : Color.FromArgb(216, 230, 247),
@@ -944,8 +1062,8 @@ namespace PodexDesktop
 
             for (int col = 0; col < 6; col++)
             {
-                table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 42));
-                table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 34));
+                table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 32));
+                table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
             }
 
             for (int row = 0; row < 3; row++)
@@ -991,8 +1109,9 @@ namespace PodexDesktop
         {
             var grid = new DataGridView
             {
-                Width = 760,
+                Width = 380,
                 Height = 96,
+                Dock = DockStyle.Fill,
                 ReadOnly = true,
                 AllowUserToAddRows = false,
                 AllowUserToDeleteRows = false,
@@ -1007,11 +1126,11 @@ namespace PodexDesktop
                 RowTemplate = { Height = 23 },
                 Margin = new Padding(0, 0, 0, 6)
             };
-            grid.Columns.Add(MakeImageColumn("fromIcon", "", 38));
-            grid.Columns.Add(MakeTextColumn("arrow", "→", 28));
-            grid.Columns.Add(MakeImageColumn("toIcon", "", 38));
-            grid.Columns.Add(MakeTextColumn("path", "", 180));
-            grid.Columns.Add(MakeTextColumn("summary", "说明", 360));
+            grid.Columns.Add(MakeImageColumn("fromIcon", "", 32));
+            grid.Columns.Add(MakeTextColumn("arrow", "→", 24));
+            grid.Columns.Add(MakeImageColumn("toIcon", "", 32));
+            grid.Columns.Add(MakeTextColumn("path", "", 132));
+            grid.Columns.Add(MakeTextColumn("summary", "说明", 190));
             grid.CellDoubleClick += delegate(object sender, DataGridViewCellEventArgs e)
             {
                 if (e.RowIndex >= 0 && e.RowIndex < grid.Rows.Count && grid.Rows[e.RowIndex].Tag is int)
@@ -1064,21 +1183,23 @@ namespace PodexDesktop
             }
         }
 
-        private Control MakeLegacyMoveSection(PokemonEntry p)
+        private Control MakeLegacyMoveSection(PokemonEntry p, bool fillParent)
         {
             var panel = new FlowLayoutPanel
             {
-                AutoSize = true,
-                Width = 780,
+                AutoSize = !fillParent,
+                Width = fillParent ? 380 : 780,
+                Dock = fillParent ? DockStyle.Fill : DockStyle.None,
                 FlowDirection = FlowDirection.TopDown,
                 WrapContents = false,
-                Margin = new Padding(0, 4, 0, 0)
+                Margin = new Padding(0, fillParent ? 0 : 4, 0, 0),
+                BackColor = Color.FromArgb(255, 250, 237)
             };
 
             var toolbar = new FlowLayoutPanel
             {
                 AutoSize = true,
-                Width = 760,
+                Width = fillParent ? 380 : 760,
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = false,
                 Margin = new Padding(0, 0, 0, 4)
@@ -1088,9 +1209,18 @@ namespace PodexDesktop
             var gameFilter = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150, Margin = new Padding(0, 2, 0, 0) };
             toolbar.Controls.Add(gameFilter);
 
-            var grid = MakeLegacyMoveGrid();
+            var grid = MakeLegacyMoveGrid(fillParent);
             panel.Controls.Add(toolbar);
             panel.Controls.Add(grid);
+            if (fillParent)
+            {
+                panel.Resize += delegate
+                {
+                    grid.Width = Math.Max(260, panel.ClientSize.Width - 2);
+                    toolbar.Width = Math.Max(260, panel.ClientSize.Width - 2);
+                    grid.Height = Math.Max(80, panel.ClientSize.Height - toolbar.Height - 8);
+                };
+            }
 
             List<LearnsetEntry> rows;
             if (!learnsetsByPokemonId.TryGetValue(p.legacyId, out rows) || rows.Count == 0)
@@ -1140,12 +1270,13 @@ namespace PodexDesktop
             return panel;
         }
 
-        private DataGridView MakeLegacyMoveGrid()
+        private DataGridView MakeLegacyMoveGrid(bool fillParent)
         {
             var grid = new DataGridView
             {
-                Width = 760,
-                Height = LegacyMoveGridHeight(),
+                Width = fillParent ? 380 : 760,
+                Height = fillParent ? 150 : LegacyMoveGridHeight(),
+                Dock = fillParent ? DockStyle.None : DockStyle.None,
                 ReadOnly = true,
                 AllowUserToAddRows = false,
                 AllowUserToDeleteRows = false,
@@ -1160,14 +1291,14 @@ namespace PodexDesktop
                 RowTemplate = { Height = 22 }
             };
             grid.Columns.Add(MakeTextColumn("level", "Lv.", 54));
-            grid.Columns.Add(MakeTextColumn("move", "招式", 132));
-            grid.Columns.Add(MakeImageColumn("type", "属性", 58));
-            grid.Columns.Add(MakeImageColumn("category", "分类", 58));
-            grid.Columns.Add(MakeTextColumn("power", "威", 44));
-            grid.Columns.Add(MakeTextColumn("accuracy", "命", 44));
-            grid.Columns.Add(MakeTextColumn("pp", "PP", 44));
-            grid.Columns.Add(MakeImageColumn("range", "范围", 62));
-            grid.Columns.Add(MakeTextColumn("priority", "优", 44));
+            grid.Columns.Add(MakeTextColumn("move", "招式", fillParent ? 110 : 132));
+            grid.Columns.Add(MakeImageColumn("type", "属性", fillParent ? 44 : 58));
+            grid.Columns.Add(MakeImageColumn("category", "分类", fillParent ? 44 : 58));
+            grid.Columns.Add(MakeTextColumn("power", "威", 38));
+            grid.Columns.Add(MakeTextColumn("accuracy", "命", 38));
+            grid.Columns.Add(MakeTextColumn("pp", "PP", 38));
+            grid.Columns.Add(MakeImageColumn("range", "范围", fillParent ? 48 : 62));
+            grid.Columns.Add(MakeTextColumn("priority", "优", 36));
             foreach (DataGridViewColumn column in grid.Columns)
             {
                 column.SortMode = DataGridViewColumnSortMode.Programmatic;
