@@ -789,30 +789,6 @@ namespace PodexDesktop
 
         private void ShowPokemon(PokemonEntry p)
         {
-            var page = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 1,
-                RowCount = 2,
-                BackColor = Color.FromArgb(255, 250, 237),
-                Margin = new Padding(0)
-            };
-            page.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            page.RowStyles.Add(new RowStyle(SizeType.Absolute, 116));
-            page.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-
-            var header = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                FlowDirection = FlowDirection.TopDown,
-                WrapContents = false,
-                BackColor = Color.FromArgb(255, 250, 237),
-                Margin = new Padding(0)
-            };
-            header.Controls.Add(MakeTitle(LocalName(p.names)));
-            header.Controls.Add(MakeMutedLabel(DexNumber(p.nationalDex) + " / " + EnglishName(p.names) + FormSuffix(p)));
-            header.Controls.Add(MakeBadgeLine(p.types));
-
             var tabs = new TabControl
             {
                 Dock = DockStyle.Fill,
@@ -821,10 +797,7 @@ namespace PodexDesktop
             tabs.TabPages.Add(BuildPokemonInfoTab(p));
             tabs.TabPages.Add(BuildPokemonFilterTab(p));
             tabs.TabPages.Add(BuildPokemonMoveFilterTab(p));
-
-            page.Controls.Add(header, 0, 0);
-            page.Controls.Add(tabs, 0, 1);
-            details.Controls.Add(page);
+            details.Controls.Add(tabs);
         }
 
         private TabPage BuildPokemonInfoTab(PokemonEntry p)
