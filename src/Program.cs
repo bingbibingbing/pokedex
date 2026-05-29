@@ -653,6 +653,7 @@ namespace PodexDesktop
 
             ApplyCurrentSort();
             list.EndUpdate();
+            UpdateModuleTitleWithCount();
             if (list.Items.Count > 0)
             {
                 list.Items[0].Selected = true;
@@ -664,6 +665,40 @@ namespace PodexDesktop
                 details.Controls.Add(MakeBodyLabel("没有匹配条目。"));
             }
             statusLabel.Text = BuildStatus();
+        }
+
+        private void UpdateModuleTitleWithCount()
+        {
+            string title = CurrentModuleTitle();
+            int total = CurrentModuleTotal();
+            string text = total > 0
+                ? string.Format("{0} ({1:N0} / {2:N0})", title, list.Items.Count, total)
+                : title;
+            titleLabel.Text = text;
+            Text = text;
+        }
+
+        private string CurrentModuleTitle()
+        {
+            if (module == "pokemon-classic") return "宝可梦 (经典版)";
+            if (module == "pokemon") return "宝可梦";
+            if (module == "moves") return "招式";
+            if (module == "abilities") return "特性";
+            if (module == "items") return "道具";
+            if (module == "type-effect") return "属性效果";
+            if (module == "natures") return "性格效果";
+            return GetModuleTitle(module);
+        }
+
+        private int CurrentModuleTotal()
+        {
+            if (module.StartsWith("pokemon")) return root.pokemon.Count;
+            if (module == "moves") return root.moves.Count;
+            if (module == "abilities") return root.abilities.Count;
+            if (module == "items") return root.items.Count;
+            if (module == "type-effect") return root.types.Count;
+            if (module == "natures") return root.natures.Count;
+            return 0;
         }
 
         private string BuildStatus()
