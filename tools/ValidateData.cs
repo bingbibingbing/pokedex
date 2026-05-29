@@ -309,6 +309,28 @@ namespace PodexTools
                         report.AddWarning("item-generation-missing", ItemLabel(item) + " has no generation/version availability.");
                     }
 
+                    if (item.generations != null)
+                    {
+                        foreach (int generation in item.generations)
+                        {
+                            if (generation <= 0)
+                            {
+                                report.AddWarning("item-generation-invalid", ItemLabel(item) + " has invalid generation: " + generation);
+                            }
+                        }
+                    }
+
+                    if (item.versionGroups != null)
+                    {
+                        foreach (int versionGroup in item.versionGroups)
+                        {
+                            if (versionGroup <= 0)
+                            {
+                                report.AddWarning("item-version-group-invalid", ItemLabel(item) + " has invalid version group: " + versionGroup);
+                            }
+                        }
+                    }
+
                     if (item.bagId == null)
                     {
                         report.AddWarning("item-bag-missing", ItemLabel(item) + " has no bagId.");
@@ -446,6 +468,7 @@ namespace PodexTools
                 report.Summary.Add("Pokemon generations", FormatCounts(root.pokemon.Select(delegate(PokemonEntry p) { return p.generation; })));
                 report.Summary.Add("Move generations", FormatCounts(root.moves.Select(delegate(MoveEntry m) { return m.generation; })));
                 report.Summary.Add("Ability generations", FormatCounts(root.abilities.Select(delegate(AbilityEntry a) { return a.generation; })));
+                report.Summary.Add("Item generations", FormatCounts(root.items.SelectMany(ItemGenerationIds)));
             }
 
             private static string FormatCounts(IEnumerable<int> values)
@@ -462,6 +485,28 @@ namespace PodexTools
                 int parsed;
                 if (int.TryParse(value.ToString(), out parsed)) return parsed;
                 return fallback;
+            }
+
+            private static IEnumerable<int> ItemGenerationIds(ItemEntry item)
+            {
+                if (item == null) yield break;
+                if (item.generations != null && item.generations.Any(delegate(int generation) { return generation > 0; }))
+                {
+                    foreach (int generation in item.generations)
+                    {
+                        if (generation > 0) yield return generation;
+                    }
+                    yield break;
+                }
+
+                if (item.flags == null) yield break;
+                if (item.flags.inGen1) yield return 1;
+                if (item.flags.inGen2) yield return 2;
+                if (item.flags.inGen3) yield return 3;
+                if (item.flags.inGen4) yield return 4;
+                if (item.flags.inGen5) yield return 5;
+                if (item.flags.inGen6) yield return 6;
+                if (item.flags.inGen7) yield return 7;
             }
 
             private static bool HasAnyName(Dictionary<string, string> names)

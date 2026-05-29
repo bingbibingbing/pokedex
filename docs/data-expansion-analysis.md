@@ -85,6 +85,13 @@ This does not scale. Add a new extensible representation while keeping old flags
 
 The UI can still render old filters, but data generation should stop depending on hard-coded `inGen7` as the last generation.
 
+Implementation status:
+
+- Desktop client now supports optional `items[].generations`.
+- Desktop client still falls back to legacy `items[].flags.inGen1` through `inGen7` when `generations` is absent.
+- Validator now accepts optional `items[].generations` and `items[].versionGroups`.
+- Importers should emit `generations` for generation filtering; `versionGroups` can be added as extra source availability detail.
+
 ### Games / Version Groups
 
 Current `games` ends at Ultra Sun / Ultra Moon.

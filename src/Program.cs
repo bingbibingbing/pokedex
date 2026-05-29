@@ -956,7 +956,7 @@ namespace PodexDesktop
             IEnumerable<int> generations = Enumerable.Empty<int>();
             if (module.StartsWith("pokemon")) generations = root.pokemon.Select(p => p.generation);
             else if (module == "abilities") generations = root.abilities.Select(a => a.generation);
-            else if (module == "items") generations = Enumerable.Range(1, 7);
+            else if (module == "items") generations = root.items.SelectMany(ItemGenerationIds);
 
             foreach (int gen in generations.Where(g => g > 0).Distinct().OrderBy(g => g))
             {
@@ -5477,6 +5477,11 @@ namespace PodexDesktop
 
         private static bool ItemInGeneration(ItemEntry item, int gen)
         {
+            if (item == null) return false;
+            if (item.generations != null && item.generations.Any(g => g > 0))
+            {
+                return item.generations.Any(g => g == gen);
+            }
             if (item.flags == null) return false;
             switch (gen)
             {
@@ -5491,11 +5496,33 @@ namespace PodexDesktop
             }
         }
 
+        private static IEnumerable<int> ItemGenerationIds(ItemEntry item)
+        {
+            if (item == null) yield break;
+            if (item.generations != null && item.generations.Any(g => g > 0))
+            {
+                foreach (int generation in item.generations)
+                {
+                    if (generation > 0) yield return generation;
+                }
+                yield break;
+            }
+
+            if (item.flags == null) yield break;
+            for (int generation = 1; generation <= 7; generation++)
+            {
+                if (ItemInGeneration(item, generation)) yield return generation;
+            }
+        }
+
         private static string ItemGenerationText(ItemEntry item)
         {
-            if (item.flags == null) return "--";
-            var gens = new List<string>();
-            for (int i = 1; i <= 7; i++) if (ItemInGeneration(item, i)) gens.Add(i.ToString());
+            var gens = ItemGenerationIds(item).Distinct().OrderBy(g => g).Select(g => g.ToString()).ToList();
+            if (gens.Count == 0 && item != null && item.versionGroups != null && item.versionGroups.Count > 0)
+            {
+                return "VG " + string.Join(", ", item.versionGroups.Where(id => id > 0).Distinct().OrderBy(id => id).Select(id => id.ToString()).ToArray());
+            }
+            if (gens.Count == 0) return "--";
             return string.Join(", ", gens.ToArray());
         }
 
@@ -5908,6 +5935,8 @@ namespace PodexDesktop
         public object price { get; set; }
         public object bagId { get; set; }
         public ItemFlags flags { get; set; }
+        public List<int> generations { get; set; }
+        public List<int> versionGroups { get; set; }
     }
 
     public sealed class ItemFlags
