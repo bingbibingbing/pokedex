@@ -613,7 +613,6 @@ namespace PodexDesktop
 
             IEnumerable<int> generations = Enumerable.Empty<int>();
             if (module.StartsWith("pokemon")) generations = root.pokemon.Select(p => p.generation);
-            else if (module == "moves") generations = root.moves.Select(m => m.generation);
             else if (module == "abilities") generations = root.abilities.Select(a => a.generation);
             else if (module == "items") generations = Enumerable.Range(1, 7);
 
@@ -634,6 +633,11 @@ namespace PodexDesktop
             string query = (searchBox.Text ?? "").Trim().ToLowerInvariant();
             string typeId = SelectedValue(typeFilter);
             string generation = SelectedValue(generationFilter);
+            if (module == "moves")
+            {
+                // The legacy move page uses the embedded filter panel, not the global generation selector.
+                generation = "";
+            }
 
             list.BeginUpdate();
             list.ListViewItemSorter = null;
@@ -713,7 +717,16 @@ namespace PodexDesktop
             else
             {
                 details.Controls.Clear();
-                details.Controls.Add(MakeBodyLabel("没有匹配条目。"));
+                if (module == "moves")
+                {
+                    details.Padding = new Padding(6);
+                    details.AutoScroll = false;
+                    details.Controls.Add(MakeMoveDetailPanel(null));
+                }
+                else
+                {
+                    details.Controls.Add(MakeBodyLabel("没有匹配条目。"));
+                }
             }
             statusLabel.Text = BuildStatus();
         }
@@ -808,14 +821,27 @@ namespace PodexDesktop
         {
             List<LearnsetEntry> rows;
             if (!learnsetsByMoveId.TryGetValue(move.id, out rows)) return false;
-            int gameId = CurrentMoveFilterGameId();
+
+            bool hasMachine = false;
+            bool hasHiddenMachine = false;
             foreach (var row in rows)
             {
-                if (row.gameId != gameId) continue;
-                if (moveModuleMachineFilter == "招式" && row.levelId >= 101 && row.levelId <= 200) return true;
-                if (moveModuleMachineFilter == "秘传" && row.levelId >= 201 && row.levelId <= 250) return true;
+                if (IsMoveMachineLevel(row.levelId)) hasMachine = true;
+                if (IsHiddenMachineLevel(row.levelId)) hasHiddenMachine = true;
             }
-            return false;
+            if (moveModuleMachineFilter == "招式") return hasMachine;
+            if (moveModuleMachineFilter == "秘传") return hasHiddenMachine;
+            return !hasMachine && !hasHiddenMachine;
+        }
+
+        private static bool IsMoveMachineLevel(int levelId)
+        {
+            return levelId >= 101 && levelId <= 200;
+        }
+
+        private static bool IsHiddenMachineLevel(int levelId)
+        {
+            return levelId >= 201 && levelId <= 250;
         }
 
         private string BuildStatus()
@@ -2431,7 +2457,7 @@ namespace PodexDesktop
                 BackColor = Color.FromArgb(255, 250, 237),
                 ForeColor = Color.Blue,
                 Font = new Font("Segoe UI", 9f),
-                Text = LocalName(move.descriptions),
+                Text = move == null ? "" : LocalName(move.descriptions),
                 Margin = new Padding(4)
             };
             group.Controls.Add(text);
@@ -2458,11 +2484,11 @@ namespace PodexDesktop
                 BackColor = Color.FromArgb(255, 250, 237)
             };
             stack.Controls.Add(MakeMoveFilterSearchPanel());
-            stack.Controls.Add(MakeMoveFilterNumberPanel("威力", move.power, moveModulePowerFilter, false, 0, 999));
-            stack.Controls.Add(MakeMoveFilterNumberPanel("命中", move.accuracy, moveModuleAccuracyFilter, false, 0, 100));
-            stack.Controls.Add(MakeMoveFilterNumberPanel("PP", move.pp, moveModulePpFilter, false, 0, 999));
-            stack.Controls.Add(MakeMoveFilterNumberPanel("优先级", move.priority, moveModulePriorityFilter, true, -10, 10));
-            stack.Controls.Add(MakeMoveFilterChoicePanel("招式 / 秘传", new[] { "招式", "秘传" }, moveModuleMachineFilter, delegate(string value) { moveModuleMachineFilter = value; }));
+            stack.Controls.Add(MakeMoveFilterNumberPanel("威力", move == null ? null : move.power, moveModulePowerFilter, false, 0, 999));
+            stack.Controls.Add(MakeMoveFilterNumberPanel("命中", move == null ? null : move.accuracy, moveModuleAccuracyFilter, false, 0, 100));
+            stack.Controls.Add(MakeMoveFilterNumberPanel("PP", move == null ? null : move.pp, moveModulePpFilter, false, 0, 999));
+            stack.Controls.Add(MakeMoveFilterNumberPanel("优先级", move == null ? null : move.priority, moveModulePriorityFilter, true, -10, 10));
+            stack.Controls.Add(MakeMoveFilterChoicePanel("招式 / 秘传", new[] { "—", "招式", "秘传" }, moveModuleMachineFilter, delegate(string value) { moveModuleMachineFilter = value; }));
             stack.Controls.Add(MakeMoveFilterSection("属性", MakeMoveTypeFilterButtons()));
             stack.Controls.Add(MakeMoveFilterSection("分类", MakeMoveCategoryFilterButtons()));
             stack.Controls.Add(MakeMoveFilterSection("效果对象", MakeMoveRangeFilterButtons()));
@@ -2867,10 +2893,12 @@ namespace PodexDesktop
         private void FillMovePokemonGrid(DataGridView grid, MoveEntry move)
         {
             grid.Rows.Clear();
+            if (move == null) return;
+
             List<LearnsetEntry> rows;
             if (!learnsetsByMoveId.TryGetValue(move.id, out rows)) return;
 
-            int gameId = CurrentMoveFilterGameId();
+            int gameId = MovePokemonGridGameId(rows);
             foreach (var row in rows
                 .Where(r => r.gameId == gameId)
                 .OrderBy(r => r.pokemonId)
@@ -2889,6 +2917,13 @@ namespace PodexDesktop
                 grid.Rows[rowIndex].Tag = pokemon.legacyId;
                 StyleMovePokemonGridRow(grid.Rows[rowIndex], pokemon);
             }
+        }
+
+        private int MovePokemonGridGameId(List<LearnsetEntry> rows)
+        {
+            int gameId = CurrentMoveFilterGameId();
+            if (rows.Any(r => r.gameId == gameId)) return gameId;
+            return rows.Select(r => r.gameId).DefaultIfEmpty(gameId).Max();
         }
 
         private static void StyleMovePokemonGridRow(DataGridViewRow row, PokemonEntry pokemon)
