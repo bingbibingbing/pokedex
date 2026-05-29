@@ -62,10 +62,10 @@ namespace PodexDesktop
         private bool moveFilterConditionSortAscending = true;
         private int moveFilterGameId = -1;
         private string moveModuleFilterSearchText = "";
-        private string moveModulePowerFilter;
-        private string moveModuleAccuracyFilter;
-        private string moveModulePpFilter;
-        private string moveModulePriorityFilter;
+        private readonly MoveNumericFilter moveModulePowerFilter = new MoveNumericFilter();
+        private readonly MoveNumericFilter moveModuleAccuracyFilter = new MoveNumericFilter();
+        private readonly MoveNumericFilter moveModulePpFilter = new MoveNumericFilter();
+        private readonly MoveNumericFilter moveModulePriorityFilter = new MoveNumericFilter();
         private string moveModuleMachineFilter;
         private int moveModuleTypeFilterId = -1;
         private int moveModuleCategoryFilterId = -1;
@@ -216,12 +216,26 @@ namespace PodexDesktop
         private void ApplyOriginalLikeSplitter()
         {
             if (mainSplit == null || mainSplit.Width <= 0) return;
-            mainSplit.Panel1MinSize = 520;
-            mainSplit.Panel2MinSize = 420;
-            int target = Math.Min(640, Math.Max(520, mainSplit.Width - 560 - mainSplit.SplitterWidth));
+
+            int total = Math.Max(0, mainSplit.Width - mainSplit.SplitterWidth);
+            int panel1Min = module == "moves" ? 440 : 520;
+            int panel2Min = module == "moves" ? 520 : 420;
+            if (total < panel1Min + panel2Min)
+            {
+                panel2Min = Math.Max(300, total - panel1Min);
+                panel1Min = Math.Max(260, total - panel2Min);
+            }
+
+            mainSplit.Panel1MinSize = panel1Min;
+            mainSplit.Panel2MinSize = panel2Min;
+
+            int target = module == "moves"
+                ? Math.Min(510, Math.Max(panel1Min, total - 600))
+                : Math.Min(640, Math.Max(panel1Min, mainSplit.Width - 560 - mainSplit.SplitterWidth));
             int maxTarget = mainSplit.Width - mainSplit.Panel2MinSize - mainSplit.SplitterWidth;
             if (target > maxTarget) target = maxTarget;
-            if (target > 0) mainSplit.SplitterDistance = target;
+            if (target < mainSplit.Panel1MinSize) target = mainSplit.Panel1MinSize;
+            if (target > 0 && target < mainSplit.Width) mainSplit.SplitterDistance = target;
         }
 
         private void AddNavButton(string text, string key)
@@ -468,6 +482,7 @@ namespace PodexDesktop
             ConfigureListColumns();
             BuildFilters();
             ApplyFilters();
+            ApplyOriginalLikeSplitter();
         }
 
         private void SortListByColumn(int column)
@@ -747,15 +762,46 @@ namespace PodexDesktop
 
         private bool MoveMatchesDetailFilters(MoveEntry move)
         {
-            if (moveModulePowerFilter != null && MoveValue(move.power) != moveModulePowerFilter) return false;
-            if (moveModuleAccuracyFilter != null && MoveValue(move.accuracy) != moveModuleAccuracyFilter) return false;
-            if (moveModulePpFilter != null && MoveValue(move.pp) != moveModulePpFilter) return false;
-            if (moveModulePriorityFilter != null && MoveValue(move.priority) != moveModulePriorityFilter) return false;
+            if (!MoveMatchesNumberFilter(move.power, moveModulePowerFilter, false)) return false;
+            if (!MoveMatchesNumberFilter(move.accuracy, moveModuleAccuracyFilter, false)) return false;
+            if (!MoveMatchesNumberFilter(move.pp, moveModulePpFilter, false)) return false;
+            if (!MoveMatchesNumberFilter(move.priority, moveModulePriorityFilter, true)) return false;
             if (moveModuleTypeFilterId > 0 && (move.type == null || move.type.id != moveModuleTypeFilterId)) return false;
             if (moveModuleCategoryFilterId > 0 && (move.category == null || move.category.id != moveModuleCategoryFilterId)) return false;
             if (moveModuleRangeFilter != null && MoveValue(move.rangeId) != moveModuleRangeFilter) return false;
             if (moveModuleMachineFilter != null && !MoveMatchesMachineFilter(move)) return false;
             return true;
+        }
+
+        private static bool MoveMatchesNumberFilter(object value, MoveNumericFilter filter, bool preserveMinusOne)
+        {
+            if (filter == null || !filter.Enabled) return true;
+
+            decimal number;
+            if (!TryMoveFilterNumber(value, preserveMinusOne, out number)) return false;
+
+            int comparison = number.CompareTo(filter.Value);
+            switch (filter.Operator)
+            {
+                case ">": return comparison > 0;
+                case "<": return comparison < 0;
+                case ">=": return comparison >= 0;
+                case "<=": return comparison <= 0;
+                default: return comparison == 0;
+            }
+        }
+
+        private static bool TryMoveFilterNumber(object value, bool preserveMinusOne, out decimal number)
+        {
+            number = 0;
+            string text = MoveDisplayValue(value, preserveMinusOne);
+            if (string.IsNullOrWhiteSpace(text) || text == "--" || text == "-") return false;
+            return decimal.TryParse(text.Trim().TrimStart('#').Replace(",", ""), out number);
+        }
+
+        private static string MoveDisplayValue(object value, bool preserveMinusOne)
+        {
+            return preserveMinusOne ? ValueOrDash(value) : MoveValue(value);
         }
 
         private bool MoveMatchesMachineFilter(MoveEntry move)
@@ -852,7 +898,7 @@ namespace PodexDesktop
             item.SubItems.Add(MoveValue(m.accuracy));
             item.SubItems.Add(MoveValue(m.pp));
             item.SubItems.Add(MoveValue(m.rangeId));
-            item.SubItems.Add(MoveValue(m.priority));
+            item.SubItems.Add(ValueOrDash(m.priority));
             item.Tag = m;
             list.Items.Add(item);
         }
@@ -910,7 +956,8 @@ namespace PodexDesktop
         {
             details.SuspendLayout();
             details.Controls.Clear();
-            details.AutoScroll = !(tag is PokemonEntry);
+            details.Padding = tag is MoveEntry ? new Padding(6) : new Padding(24);
+            details.AutoScroll = !(tag is PokemonEntry || tag is MoveEntry);
             if (tag is PokemonEntry) ShowPokemon((PokemonEntry)tag);
             else if (tag is MoveEntry) ShowMove((MoveEntry)tag);
             else if (tag is AbilityEntry) ShowAbility((AbilityEntry)tag);
@@ -1620,7 +1667,7 @@ namespace PodexDesktop
                     MoveValue(move.accuracy),
                     MoveValue(move.pp),
                     LoadCellImage(MoveRangeImagePath(move.rangeId)),
-                    MoveValue(move.priority)
+                    ValueOrDash(move.priority)
                 );
                 grid.Rows[rowIndex].Tag = move.id;
                 ApplyMoveTooltip(grid.Rows[rowIndex], move);
@@ -1707,7 +1754,7 @@ namespace PodexDesktop
                 case 7:
                     return CompareSortNumber(left.rangeId, right.rangeId);
                 case 8:
-                    return CompareMoveValue(left.priority, right.priority);
+                    return CompareSortNumber(ValueOrDash(left.priority), ValueOrDash(right.priority));
                 default:
                     return left.id.CompareTo(right.id);
             }
@@ -2106,7 +2153,7 @@ namespace PodexDesktop
                     move == null ? "--" : MoveValue(move.accuracy),
                     move == null ? "--" : MoveValue(move.pp),
                     LoadCellImage(move == null ? "" : MoveRangeImagePath(move.rangeId)),
-                    move == null ? "--" : MoveValue(move.priority)
+                    move == null ? "--" : ValueOrDash(move.priority)
                 );
                 ApplyMoveTooltip(grid.Rows[rowIndex], move);
             }
@@ -2154,7 +2201,7 @@ namespace PodexDesktop
                 case 7:
                     return CompareSortNumber(leftMove == null ? null : leftMove.rangeId, rightMove == null ? null : rightMove.rangeId);
                 case 8:
-                    return CompareMoveValue(leftMove == null ? null : leftMove.priority, rightMove == null ? null : rightMove.priority);
+                    return CompareSortNumber(leftMove == null ? null : ValueOrDash(leftMove.priority), rightMove == null ? null : ValueOrDash(rightMove.priority));
                 default:
                     return CompareLegacyMoveRowsDefault(left, right);
             }
@@ -2333,33 +2380,35 @@ namespace PodexDesktop
             var layout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                ColumnCount = 1,
-                RowCount = 2,
+                ColumnCount = 2,
+                RowCount = 1,
                 BackColor = Color.FromArgb(255, 250, 237),
                 Margin = new Padding(0)
             };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 282));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 360));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
-            var top = new TableLayoutPanel
+            var middle = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                RowCount = 1,
-                Margin = new Padding(0, 0, 0, 4),
+                ColumnCount = 1,
+                RowCount = 2,
+                Margin = new Padding(0),
                 BackColor = Color.FromArgb(255, 250, 237)
             };
-            top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
-            top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62));
-            top.Controls.Add(MakeMoveDescriptionBox(move), 0, 0);
-            top.Controls.Add(MakeMoveFilterBox(move), 1, 0);
+            middle.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            middle.RowStyles.Add(new RowStyle(SizeType.Absolute, 118));
+            middle.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            middle.Controls.Add(MakeMoveDescriptionBox(move), 0, 0);
+            middle.Controls.Add(MakeMoveFilterBox(move), 0, 1);
 
             var pokemonGrid = MakeMovePokemonGrid();
+            pokemonGrid.Margin = new Padding(6, 0, 0, 0);
             FillMovePokemonGrid(pokemonGrid, move);
 
-            layout.Controls.Add(top, 0, 0);
-            layout.Controls.Add(pokemonGrid, 0, 1);
+            layout.Controls.Add(middle, 0, 0);
+            layout.Controls.Add(pokemonGrid, 1, 0);
             return layout;
         }
 
@@ -2369,7 +2418,7 @@ namespace PodexDesktop
             {
                 Text = "描述",
                 Dock = DockStyle.Fill,
-                Margin = new Padding(0, 0, 5, 0),
+                Margin = new Padding(0, 0, 0, 5),
                 BackColor = Color.FromArgb(255, 250, 237)
             };
             var text = new TextBox
@@ -2409,17 +2458,17 @@ namespace PodexDesktop
                 BackColor = Color.FromArgb(255, 250, 237)
             };
             stack.Controls.Add(MakeMoveFilterSearchPanel());
-            stack.Controls.Add(MakeMoveFilterValuePanel("威力", MoveValue(move.power), moveModulePowerFilter, delegate(string value) { moveModulePowerFilter = value; }));
-            stack.Controls.Add(MakeMoveFilterValuePanel("命中", MoveValue(move.accuracy), moveModuleAccuracyFilter, delegate(string value) { moveModuleAccuracyFilter = value; }));
-            stack.Controls.Add(MakeMoveFilterValuePanel("PP", MoveValue(move.pp), moveModulePpFilter, delegate(string value) { moveModulePpFilter = value; }));
-            stack.Controls.Add(MakeMoveFilterValuePanel("优先级", MoveValue(move.priority), moveModulePriorityFilter, delegate(string value) { moveModulePriorityFilter = value; }));
+            stack.Controls.Add(MakeMoveFilterNumberPanel("威力", move.power, moveModulePowerFilter, false, 0, 999));
+            stack.Controls.Add(MakeMoveFilterNumberPanel("命中", move.accuracy, moveModuleAccuracyFilter, false, 0, 100));
+            stack.Controls.Add(MakeMoveFilterNumberPanel("PP", move.pp, moveModulePpFilter, false, 0, 999));
+            stack.Controls.Add(MakeMoveFilterNumberPanel("优先级", move.priority, moveModulePriorityFilter, true, -10, 10));
             stack.Controls.Add(MakeMoveFilterChoicePanel("招式 / 秘传", new[] { "招式", "秘传" }, moveModuleMachineFilter, delegate(string value) { moveModuleMachineFilter = value; }));
             stack.Controls.Add(MakeMoveFilterSection("属性", MakeMoveTypeFilterButtons()));
             stack.Controls.Add(MakeMoveFilterSection("分类", MakeMoveCategoryFilterButtons()));
             stack.Controls.Add(MakeMoveFilterSection("效果对象", MakeMoveRangeFilterButtons()));
             stack.Resize += delegate
             {
-                int width = Math.Max(220, stack.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 8);
+                int width = Math.Max(240, stack.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 8);
                 foreach (Control control in stack.Controls) control.Width = width;
             };
             group.Controls.Add(stack);
@@ -2451,16 +2500,25 @@ namespace PodexDesktop
                 ApplyFilters();
             };
             panel.Controls.Add(search, 1, 0);
-            panel.SetColumnSpan(search, 2);
-            panel.Controls.Add(MakeMoveFilterToggleButton(null), 3, 0);
+            panel.SetColumnSpan(search, 3);
+            panel.Controls.Add(MakeMoveFilterToggleButton(null), 4, 0);
             return panel;
         }
 
-        private Control MakeMoveFilterValuePanel(string label, string value, string activeValue, Action<string> setFilter)
+        private Control MakeMoveFilterNumberPanel(string label, object rawValue, MoveNumericFilter filter, bool preserveMinusOne, decimal minimum, decimal maximum)
         {
             var panel = MakeMoveFilterRowPanel();
-            string displayValue = activeValue ?? (string.IsNullOrWhiteSpace(value) ? "--" : value);
-            var check = new CheckBox { Dock = DockStyle.Fill, Checked = activeValue != null, Margin = new Padding(0, 6, 0, 0) };
+            decimal currentValue;
+            bool hasCurrentValue = TryMoveFilterNumber(rawValue, preserveMinusOne, out currentValue);
+            bool canEdit = filter.Enabled || hasCurrentValue;
+
+            var check = new CheckBox
+            {
+                Dock = DockStyle.Fill,
+                Checked = filter.Enabled,
+                Enabled = canEdit,
+                Margin = new Padding(0, 6, 0, 0)
+            };
             panel.Controls.Add(check, 0, 0);
             panel.Controls.Add(new Label
             {
@@ -2471,27 +2529,73 @@ namespace PodexDesktop
                 Font = new Font("Segoe UI", 9f),
                 Margin = new Padding(0)
             }, 1, 0);
-            var text = new TextBox
+
+            var op = new ComboBox
             {
                 Dock = DockStyle.Fill,
-                ReadOnly = true,
-                BorderStyle = BorderStyle.FixedSingle,
-                Text = displayValue,
-                BackColor = Color.FromArgb(230, 230, 230),
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Enabled = filter.Enabled,
                 Margin = new Padding(0, 3, 4, 3)
             };
-            panel.Controls.Add(text, 2, 0);
-            Button toggle = MakeMoveFilterToggleButton(check);
-            panel.Controls.Add(toggle, 3, 0);
+            op.Items.Add("=");
+            op.Items.Add(">");
+            op.Items.Add("<");
+            op.Items.Add(">=");
+            op.Items.Add("<=");
+            op.SelectedItem = string.IsNullOrWhiteSpace(filter.Operator) ? "=" : filter.Operator;
+            if (op.SelectedIndex < 0) op.SelectedIndex = 0;
+            panel.Controls.Add(op, 2, 0);
+
+            NumericUpDown number = null;
+            if (canEdit)
+            {
+                number = new NumericUpDown
+                {
+                    Dock = DockStyle.Fill,
+                    DecimalPlaces = 0,
+                    Minimum = minimum,
+                    Maximum = maximum,
+                    Value = ClampDecimal(filter.Enabled ? filter.Value : currentValue, minimum, maximum),
+                    Enabled = filter.Enabled,
+                    Margin = new Padding(0, 3, 4, 3)
+                };
+                panel.Controls.Add(number, 3, 0);
+            }
+            else
+            {
+                panel.Controls.Add(new TextBox
+                {
+                    Dock = DockStyle.Fill,
+                    ReadOnly = true,
+                    Enabled = false,
+                    BorderStyle = BorderStyle.FixedSingle,
+                    Text = "--",
+                    BackColor = Color.FromArgb(230, 230, 230),
+                    Margin = new Padding(0, 3, 4, 3)
+                }, 3, 0);
+            }
+
+            Button toggle = MakeMoveFilterToggleButton(canEdit ? check : null);
+            panel.Controls.Add(toggle, 4, 0);
 
             Action apply = delegate
             {
+                if (!canEdit || number == null) return;
+                op.Enabled = check.Checked;
+                number.Enabled = check.Checked;
                 toggle.Text = check.Checked ? "-" : "+";
-                setFilter(check.Checked ? text.Text : null);
+                filter.Enabled = check.Checked;
+                if (filter.Enabled)
+                {
+                    filter.Operator = op.SelectedItem == null ? "=" : op.SelectedItem.ToString();
+                    filter.Value = number.Value;
+                }
                 ApplyFilters();
             };
 
             check.CheckedChanged += delegate { apply(); };
+            op.SelectedIndexChanged += delegate { if (check.Checked) apply(); };
+            if (number != null) number.ValueChanged += delegate { if (check.Checked) apply(); };
             toggle.Click += delegate { check.Checked = !check.Checked; };
             return panel;
         }
@@ -2520,8 +2624,9 @@ namespace PodexDesktop
             foreach (string value in values) combo.Items.Add(value);
             combo.SelectedItem = activeValue ?? values[0];
             panel.Controls.Add(combo, 2, 0);
+            panel.SetColumnSpan(combo, 2);
             Button toggle = MakeMoveFilterToggleButton(check);
-            panel.Controls.Add(toggle, 3, 0);
+            panel.Controls.Add(toggle, 4, 0);
 
             Action apply = delegate
             {
@@ -2541,13 +2646,14 @@ namespace PodexDesktop
             var panel = new TableLayoutPanel
             {
                 Height = 28,
-                ColumnCount = 4,
+                ColumnCount = 5,
                 RowCount = 1,
                 Margin = new Padding(0, 0, 0, 1),
                 BackColor = Color.FromArgb(255, 250, 237)
             };
-            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
-            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 82));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 22));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 76));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 44));
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
             panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -2556,37 +2662,50 @@ namespace PodexDesktop
 
         private Control MakeMoveFilterSection(string title, Control content)
         {
-            var panel = new Panel
+            var panel = new TableLayoutPanel
             {
-                Height = title == "属性" ? 96 : 48,
+                Height = MoveFilterSectionHeight(title),
+                ColumnCount = 1,
+                RowCount = 2,
                 Margin = new Padding(0, 3, 0, 3),
                 BackColor = Color.FromArgb(255, 250, 237)
             };
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 18));
+            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             var label = new Label
             {
                 Text = title,
-                Dock = DockStyle.Top,
-                Height = 18,
+                Dock = DockStyle.Fill,
                 ForeColor = Color.FromArgb(23, 32, 27),
                 Font = new Font("Segoe UI", 9f),
                 TextAlign = ContentAlignment.MiddleLeft
             };
             content.Dock = DockStyle.Fill;
-            panel.Controls.Add(content);
-            panel.Controls.Add(label);
+            panel.Controls.Add(label, 0, 0);
+            panel.Controls.Add(content, 0, 1);
             return panel;
         }
 
-        private Control MakeMoveTypeFilterButtons()
+        private static int MoveFilterSectionHeight(string title)
+        {
+            if (title == "属性") return 142;
+            if (title == "效果对象") return 72;
+            return 50;
+        }
+
+        private FlowLayoutPanel MakeMoveTypeFilterButtons()
         {
             var panel = MakeMoveButtonWrapPanel();
             foreach (var type in root.types.OrderBy(t => t.id))
             {
-                var button = MakeMoveFilterTextButton(LocalName(type.names), TypeColor(type.id), Color.White, moveModuleTypeFilterId == type.id);
                 int typeId = type.id;
+                var button = MakeMoveFilterImageButton(LocalName(type.names), TypeImagePath(type.id), 50, TypeColor(type.id), Color.White, moveModuleTypeFilterId == type.id);
+                button.Tag = typeId;
                 button.Click += delegate
                 {
                     moveModuleTypeFilterId = moveModuleTypeFilterId == typeId ? -1 : typeId;
+                    UpdateMoveFilterButtonSelection(panel, moveModuleTypeFilterId > 0 ? (object)typeId : null);
                     ApplyFilters();
                 };
                 panel.Controls.Add(button);
@@ -2594,17 +2713,19 @@ namespace PodexDesktop
             return panel;
         }
 
-        private Control MakeMoveCategoryFilterButtons()
+        private FlowLayoutPanel MakeMoveCategoryFilterButtons()
         {
             var panel = MakeMoveButtonWrapPanel();
             foreach (var category in root.moves.Where(m => m.category != null).Select(m => m.category).GroupBy(c => c.id).Select(g => g.First()).OrderBy(c => c.id))
             {
                 string name = LocalName(category.names);
-                var button = MakeMoveFilterTextButton(name, CategoryColor(name), Color.White, moveModuleCategoryFilterId == category.id);
                 int categoryId = category.id;
+                var button = MakeMoveFilterImageButton(name, MoveCategoryImagePath(category.id), 48, CategoryColor(name), Color.White, moveModuleCategoryFilterId == category.id);
+                button.Tag = categoryId;
                 button.Click += delegate
                 {
                     moveModuleCategoryFilterId = moveModuleCategoryFilterId == categoryId ? -1 : categoryId;
+                    UpdateMoveFilterButtonSelection(panel, moveModuleCategoryFilterId > 0 ? (object)categoryId : null);
                     ApplyFilters();
                 };
                 panel.Controls.Add(button);
@@ -2612,22 +2733,17 @@ namespace PodexDesktop
             return panel;
         }
 
-        private Control MakeMoveRangeFilterButtons()
+        private FlowLayoutPanel MakeMoveRangeFilterButtons()
         {
             var panel = MakeMoveButtonWrapPanel();
             foreach (string rangeValue in root.moves.Select(m => MoveValue(m.rangeId)).Where(v => v != "--").Distinct().OrderBy(v => v))
             {
-                var button = new Button
-                {
-                    Width = 42,
-                    Height = 22,
-                    Margin = new Padding(1),
-                    Text = rangeValue,
-                    BackColor = moveModuleRangeFilter == rangeValue ? Color.FromArgb(216, 230, 247) : Color.FromArgb(240, 240, 240)
-                };
+                var button = MakeMoveFilterImageButton(rangeValue, MoveRangeImagePath(rangeValue), 42, Color.FromArgb(240, 240, 240), Color.FromArgb(23, 32, 27), moveModuleRangeFilter == rangeValue);
+                button.Tag = rangeValue;
                 button.Click += delegate
                 {
                     moveModuleRangeFilter = moveModuleRangeFilter == rangeValue ? null : rangeValue;
+                    UpdateMoveFilterButtonSelection(panel, moveModuleRangeFilter);
                     ApplyFilters();
                 };
                 panel.Controls.Add(button);
@@ -2642,26 +2758,58 @@ namespace PodexDesktop
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = true,
                 AutoScroll = false,
-                Padding = new Padding(0, 20, 0, 0),
+                Padding = new Padding(0),
                 BackColor = Color.FromArgb(255, 250, 237)
             };
         }
 
-        private static Button MakeMoveFilterTextButton(string text, Color backColor, Color foreColor, bool selected)
+        private Button MakeMoveFilterImageButton(string text, string imagePath, int width, Color fallbackBackColor, Color fallbackForeColor, bool selected)
         {
             var button = new Button
             {
-                Width = 50,
+                Width = width,
                 Height = 22,
                 Margin = new Padding(1),
-                Text = text,
-                BackColor = backColor,
-                ForeColor = foreColor,
+                BackColor = Color.FromArgb(240, 240, 240),
+                ForeColor = fallbackForeColor,
                 FlatStyle = FlatStyle.Flat
             };
+            Image image = LoadCellImage(imagePath);
+            if (image != null)
+            {
+                button.Image = image;
+                button.ImageAlign = ContentAlignment.MiddleCenter;
+            }
+            else
+            {
+                button.Text = text;
+                button.BackColor = fallbackBackColor;
+            }
+            SetMoveFilterButtonSelected(button, selected);
+            return button;
+        }
+
+        private static void UpdateMoveFilterButtonSelection(FlowLayoutPanel panel, object selectedTag)
+        {
+            foreach (Control control in panel.Controls)
+            {
+                var button = control as Button;
+                if (button == null) continue;
+                SetMoveFilterButtonSelected(button, selectedTag != null && object.Equals(button.Tag, selectedTag));
+            }
+        }
+
+        private static void SetMoveFilterButtonSelected(Button button, bool selected)
+        {
             button.FlatAppearance.BorderColor = selected ? Color.FromArgb(0, 75, 180) : Color.FromArgb(190, 190, 190);
             button.FlatAppearance.BorderSize = selected ? 2 : 1;
-            return button;
+        }
+
+        private static decimal ClampDecimal(decimal value, decimal minimum, decimal maximum)
+        {
+            if (value < minimum) return minimum;
+            if (value > maximum) return maximum;
+            return value;
         }
 
         private static Button MakeMoveFilterToggleButton(CheckBox check)
@@ -4196,6 +4344,18 @@ namespace PodexDesktop
                 e.Graphics.DrawString(Text, Font, brush, ClientRectangle, format);
             }
         }
+    }
+
+    public sealed class MoveNumericFilter
+    {
+        public MoveNumericFilter()
+        {
+            Operator = "=";
+        }
+
+        public bool Enabled { get; set; }
+        public string Operator { get; set; }
+        public decimal Value { get; set; }
     }
 
     public sealed class FilterOption
