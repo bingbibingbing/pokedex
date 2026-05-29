@@ -1095,17 +1095,6 @@ namespace PodexDesktop
             }
             imageStack.Controls.Add(picture);
 
-            var smallPicture = new PictureBox
-            {
-                Width = 36,
-                Height = 28,
-                SizeMode = PictureBoxSizeMode.CenterImage,
-                BackColor = Color.FromArgb(255, 250, 237),
-                Margin = new Padding(30, 0, 0, 0)
-            };
-            smallPicture.Image = LoadPokemonSmallCellImage(p.legacyId);
-            imageStack.Controls.Add(smallPicture);
-
             var facts = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
@@ -1122,6 +1111,8 @@ namespace PodexDesktop
             AddDetailInfoRow(facts, row++, "样子", LocalName(p.formNames));
             AddDetailInfoRow(facts, row++, "分类", LocalName(p.speciesNames));
             AddDetailInfoControlRow(facts, row++, "属性", MakeTypeBadgeRow(p.types));
+            AddDetailInfoControlRow(facts, row++, "弱点", MakeDefenseTypeBadgeRow(p, true));
+            AddDetailInfoControlRow(facts, row++, "抵抗", MakeDefenseTypeBadgeRow(p, false));
             AddDetailInfoRow(facts, row++, "性别比", p.genderRatio == null ? "--" : LocalName(p.genderRatio.names));
             AddDetailInfoRow(facts, row++, "身高", p.measurements == null ? "--" : ValueOrDash(p.measurements.heightMetric) + " m");
             AddDetailInfoRow(facts, row++, "体重", p.measurements == null ? "--" : ValueOrDash(p.measurements.weightMetric) + " kg");
@@ -1199,6 +1190,47 @@ namespace PodexDesktop
                 });
             }
             return panel;
+        }
+
+        private Control MakeDefenseTypeBadgeRow(PokemonEntry p, bool weaknesses)
+        {
+            var panel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                BackColor = Color.FromArgb(244, 234, 216),
+                Margin = new Padding(0)
+            };
+
+            foreach (var type in root.types.OrderBy(t => t.id))
+            {
+                double multiplier = ParseMultiplier(GetDefenseMultiplierText(p, type.id));
+                if ((weaknesses && multiplier <= 1) || (!weaknesses && multiplier >= 1)) continue;
+                panel.Controls.Add(MakeCompactTypeBadge(type));
+            }
+
+            if (panel.Controls.Count == 0)
+            {
+                panel.Controls.Add(new Label { Text = "--", AutoSize = true, Margin = new Padding(0, 3, 0, 0) });
+            }
+            return panel;
+        }
+
+        private static Label MakeCompactTypeBadge(TypeRef type)
+        {
+            return new Label
+            {
+                Text = LocalName(type.names),
+                AutoSize = false,
+                Width = 38,
+                Height = 18,
+                TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = TypeColor(type.id),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 8f, FontStyle.Bold),
+                Margin = new Padding(0, 2, 4, 0)
+            };
         }
 
         private TabPage BuildPokemonMoveFilterTab(PokemonEntry p)
