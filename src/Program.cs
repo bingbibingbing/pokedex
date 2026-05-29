@@ -1127,12 +1127,12 @@ namespace PodexDesktop
             grid.Columns.Add(MakeImageColumn("fromIcon", "", 38));
             grid.Columns.Add(MakeTextColumn("arrow", "→", 28));
             grid.Columns.Add(MakeImageColumn("toIcon", "", 38));
-            grid.Columns.Add(MakeTextColumn("path", "", 190));
             grid.Columns.Add(MakeTextColumn("summary", "说明", 360));
+            grid.Columns["summary"].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
             grid.Resize += delegate
             {
-                int fixedWidth = 38 + 28 + 38 + 190 + 24;
-                grid.Columns["summary"].Width = Math.Max(160, grid.ClientSize.Width - fixedWidth);
+                int fixedWidth = 38 + 28 + 38 + 24;
+                grid.Columns["summary"].Width = Math.Max(260, grid.ClientSize.Width - fixedWidth);
             };
             grid.CellDoubleClick += delegate(object sender, DataGridViewCellEventArgs e)
             {
@@ -1164,8 +1164,6 @@ namespace PodexDesktop
                     LoadPokemonSmallCellImage(previous == null ? -1 : previous.legacyId),
                     "→",
                     LoadPokemonSmallCellImage(target == null ? -1 : target.legacyId),
-                    (previous == null ? "#" + evolution.previousPokemonId : LocalName(previous.names)) + " → " +
-                        (target == null ? "#" + evolution.pokemonId : LocalName(target.names)),
                     BuildEvolutionSummary(evolution)
                 );
                 if (target != null)
@@ -1182,7 +1180,7 @@ namespace PodexDesktop
         {
             while (grid.Rows.Count < 3)
             {
-                grid.Rows.Add(null, "", null, "", "");
+                grid.Rows.Add(null, "", null, "");
                 DataGridViewRow row = grid.Rows[grid.Rows.Count - 1];
                 row.Cells["fromIcon"].Value = new Bitmap(1, 1);
                 row.Cells["toIcon"].Value = new Bitmap(1, 1);
