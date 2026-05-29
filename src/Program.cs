@@ -108,7 +108,6 @@ namespace PodexDesktop
             navPanel.Padding = new Padding(12);
 
             AddNavButton("宝可梦", "pokemon");
-            AddNavButton("宝可梦 (经典版)", "pokemon-classic");
             AddNavButton("道具", "items");
             AddNavButton("特性", "abilities");
             AddNavButton("招式", "moves");
