@@ -1183,6 +1183,12 @@ namespace PodexDesktop
             while (grid.Rows.Count < 3)
             {
                 grid.Rows.Add(null, "", null, "", "");
+                DataGridViewRow row = grid.Rows[grid.Rows.Count - 1];
+                row.Cells["fromIcon"].Value = new Bitmap(1, 1);
+                row.Cells["toIcon"].Value = new Bitmap(1, 1);
+                row.DefaultCellStyle.BackColor = Color.FromArgb(255, 250, 237);
+                row.DefaultCellStyle.SelectionBackColor = Color.FromArgb(255, 250, 237);
+                row.DefaultCellStyle.SelectionForeColor = Color.FromArgb(23, 32, 27);
             }
         }
 
