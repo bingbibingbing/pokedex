@@ -12,6 +12,14 @@ It is a WinForms executable that reads the migrated local data file from
 .\build.ps1
 ```
 
+To build a portable test package with the generated expanded catalog preview:
+
+```powershell
+.\tools\import-data.ps1 -RequireSource
+.\tools\validate-data.ps1 -DataPath artifacts\pokemon-catalog-preview.json
+.\build.ps1 -UsePreviewData
+```
+
 The output is:
 
 ```text
@@ -20,6 +28,7 @@ bin\data\pokemon.json
 release\PodexDesktop\PodexDesktop.exe
 release\PodexDesktop\data\pokemon.json
 release\PodexDesktop\images\
+release\PodexDesktop-catalog-preview\
 ```
 
 ## Run
@@ -47,6 +56,7 @@ Windows with .NET Framework 4.x. No development tools are required for end users
 
 The migrated data is kept in `data\pokemon.json`.
 The migrated sprites and UI icons are kept in `assets\images`.
+Expanded catalog work is generated to `artifacts\pokemon-catalog-preview.json` first, then packaged with `.\build.ps1 -UsePreviewData` for testing.
 
 The desktop app is read-only. It does not modify the original legacy package.
 
@@ -93,7 +103,7 @@ artifacts\missing-chinese.csv
 
 Downloaded CSV files are cached under `tools\import-data\source-cache` and are ignored by Git.
 By default, the preview JSON refuses English fallback and skips new rows that lack zh-CN names or descriptions.
-The preview JSON adds new moves, abilities, items, and Gen 8/9 default Pokemon. Extra forms, complete evolutions, and new learnsets are still handled as later import phases.
+The preview JSON adds new moves, abilities, items, Gen 8/9 default Pokemon, their sprites, evolutions, and learnsets. Extra forms are still handled as a later import phase.
 
 ## Pokemon Sprites
 

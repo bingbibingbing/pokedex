@@ -1,3 +1,9 @@
+param(
+  [string]$DataPath,
+  [switch]$UsePreviewData,
+  [string]$ReleaseName
+)
+
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -6,13 +12,32 @@ $Source = Join-Path $Root "src\Program.cs"
 $Bin = Join-Path $Root "bin"
 $DataDir = Join-Path $Bin "data"
 $Out = Join-Path $Bin "PodexDesktop.exe"
-$Release = Join-Path $Root "release\PodexDesktop"
+$DefaultData = Join-Path $Root "data\pokemon.json"
+$PreviewData = Join-Path $Root "artifacts\pokemon-catalog-preview.json"
+
+if (-not $DataPath) {
+  if ($UsePreviewData) {
+    $DataPath = $PreviewData
+  } else {
+    $DataPath = $DefaultData
+  }
+}
+
+if (-not $ReleaseName) {
+  if ($UsePreviewData) {
+    $ReleaseName = "PodexDesktop-catalog-preview"
+  } else {
+    $ReleaseName = "PodexDesktop"
+  }
+}
+
+$JsonSource = $DataPath
+$Release = Join-Path $Root ("release\" + $ReleaseName)
 $ReleaseData = Join-Path $Release "data"
 $ReleaseOut = Join-Path $Release "PodexDesktop.exe"
 $AssetsImages = Join-Path $Root "assets\images"
 $BinImages = Join-Path $Bin "images"
 $ReleaseImages = Join-Path $Release "images"
-$JsonSource = Join-Path $Root "data\pokemon.json"
 $JsonOut = Join-Path $DataDir "pokemon.json"
 
 if (-not (Test-Path $Csc)) {
@@ -20,7 +45,7 @@ if (-not (Test-Path $Csc)) {
 }
 
 if (-not (Test-Path $JsonSource)) {
-  throw "Migrated data not found: $JsonSource."
+  throw "Data file not found: $JsonSource."
 }
 
 New-Item -ItemType Directory -Force -Path $Bin | Out-Null
@@ -58,6 +83,9 @@ if (Test-Path $AssetsImages) {
   "Podex Desktop",
   "",
   "Run PodexDesktop.exe directly.",
+  "",
+  "Data source:",
+  "- $JsonSource",
   "",
   "Runtime requirements:",
   "- Windows",
