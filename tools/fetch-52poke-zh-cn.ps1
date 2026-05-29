@@ -225,7 +225,8 @@ function Normalize-MatchText {
   if ($null -eq $Text) {
     return ""
   }
-  return ([regex]::Replace($Text, "[\p{C}\s]+", "")).Trim()
+  $value = $Text.Replace([char]0x2018, "'").Replace([char]0x2019, "'").Replace([char]0x02BC, "'")
+  return ([regex]::Replace($value, "[\p{C}\s]+", "")).Trim()
 }
 
 function Get-WikiText {

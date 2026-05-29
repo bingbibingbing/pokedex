@@ -253,8 +253,8 @@ namespace PodexTools
                 report.Candidates.Add("New Pokemon/form rows by species id", CountRowsGreaterThan(pokemon, "species_id", currentMaxDex).ToString());
                 report.Candidates.Add("New moves by id", CountRowsGreaterThan(moves, "id", currentMaxMove).ToString());
                 report.Candidates.Add("New moves by generation > 7", CountRowsGreaterThan(moves, "generation_id", 7).ToString());
-                report.Candidates.Add("New abilities by id", CountRowsGreaterThan(abilities, "id", currentMaxAbility).ToString());
-                report.Candidates.Add("New abilities by generation > 7", CountRowsGreaterThan(abilities, "generation_id", 7).ToString());
+                report.Candidates.Add("New mainline abilities by id", CountMainlineAbilitiesGreaterThan(abilities, "id", currentMaxAbility).ToString());
+                report.Candidates.Add("New mainline abilities by generation > 7", CountMainlineAbilitiesGreaterThan(abilities, "generation_id", 7).ToString());
                 report.Candidates.Add("New items by id", CountRowsGreaterThan(items, "id", currentMaxItem).ToString());
                 report.Candidates.Add("Items available in generation > 7", CountDistinctRowsGreaterThan(itemGameIndices, "item_id", "generation_id", 7).ToString());
                 report.Candidates.Add("Version groups after generation 7", CountRowsGreaterThan(versionGroups, "generation_id", 7).ToString());
@@ -364,7 +364,11 @@ namespace PodexTools
                 {
                     int sourceId = CsvInt(row, "id");
                     string localId = sourceId.ToString();
-                    if (root.abilities.Any(delegate(AbilityEntry ability) { return ability.id == sourceId; }))
+                    if (!IsMainlineAbility(row))
+                    {
+                        AddMapping("ability", sourceId.ToString(), "", "skip_non_mainline", "non-mainline ability", CsvValue(row, "identifier"));
+                    }
+                    else if (root.abilities.Any(delegate(AbilityEntry ability) { return ability.id == sourceId; }))
                     {
                         AddMapping("ability", sourceId.ToString(), localId, "existing", "ability id already present", CsvValue(row, "identifier"));
                     }
@@ -444,6 +448,16 @@ namespace PodexTools
             private static int CountRowsGreaterThan(CsvTable table, string column, int threshold)
             {
                 return table.Rows.Count(delegate(Dictionary<string, string> row) { return CsvInt(row, column) > threshold; });
+            }
+
+            private static int CountMainlineAbilitiesGreaterThan(CsvTable table, string column, int threshold)
+            {
+                return table.Rows.Count(delegate(Dictionary<string, string> row) { return IsMainlineAbility(row) && CsvInt(row, column) > threshold; });
+            }
+
+            private static bool IsMainlineAbility(Dictionary<string, string> row)
+            {
+                return CsvValue(row, "is_main_series") != "0";
             }
 
             private static int CountDistinctRowsGreaterThan(CsvTable table, string distinctColumn, string compareColumn, int threshold)
@@ -996,11 +1010,17 @@ namespace PodexTools
                 }
 
                 int addedAbilities = 0;
+                int skippedAbilities = 0;
                 int skippedAbilitiesMissingChinese = 0;
                 foreach (Dictionary<string, string> row in sourceAbilities.Rows.OrderBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "id"); }))
                 {
                     int id = CsvInt(row, "id");
                     if (id <= maxAbilityId) continue;
+                    if (!IsMainlineAbility(row))
+                    {
+                        skippedAbilities++;
+                        continue;
+                    }
                     if (!options.AllowEnglishFallback && !HasCompleteChinese(abilityNameMap, id, abilityTextMap, id))
                     {
                         report.MissingChineseRows.Add(new MissingChineseRow("ability", id, CsvValue(row, "identifier"), !HasChinese(abilityNameMap, id), !HasChinese(abilityTextMap, id)));
@@ -1050,6 +1070,7 @@ namespace PodexTools
                 report.PreviewSummary["Skipped non-mainline/incomplete moves"] = skippedMoves.ToString();
                 report.PreviewSummary["Skipped moves missing Chinese"] = skippedMovesMissingChinese.ToString();
                 report.PreviewSummary["Added abilities"] = addedAbilities.ToString();
+                report.PreviewSummary["Skipped non-mainline abilities"] = skippedAbilities.ToString();
                 report.PreviewSummary["Skipped abilities missing Chinese"] = skippedAbilitiesMissingChinese.ToString();
                 report.PreviewSummary["Added items"] = addedItems.ToString();
                 report.PreviewSummary["Skipped items without generation availability"] = skippedItems.ToString();
@@ -1441,6 +1462,11 @@ namespace PodexTools
                 if (!row.TryGetValue(column, out value)) return 0;
                 int parsed;
                 return int.TryParse(value, out parsed) ? parsed : 0;
+            }
+
+            private static bool IsMainlineAbility(Dictionary<string, string> row)
+            {
+                return CsvValue(row, "is_main_series") != "0";
             }
 
             private static string CsvValue(Dictionary<string, string> row, string column)
