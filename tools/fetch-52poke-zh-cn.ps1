@@ -263,7 +263,9 @@ function Convert-WikiTextToPlain {
   $value = [regex]::Replace($value, "<!--.*?-->", "", [System.Text.RegularExpressions.RegexOptions]::Singleline)
   $value = [regex]::Replace($value, "<ref[^>]*>.*?</ref>", "", [System.Text.RegularExpressions.RegexOptions]::Singleline)
   $value = [regex]::Replace($value, "<[^>]+>", "")
-  $value = [regex]::Replace($value, "\{\{招式效果/击中要害\|[^}]+\}\}", "容易击中要害。")
+  $value = [regex]::Replace($value, "目前[类似類似].*?遊戲漏洞.*?。", "")
+  $value = [regex]::Replace($value, "\{\{招式效果/击中要害(?:\|[^}]*)?\}\}", "容易击中要害。")
+  $value = [regex]::Replace($value, "\{\{招式效果/畏缩\}\}", "使目标畏缩。")
   $value = [regex]::Replace($value, "\{\{招式效果/麻痹\|([^|}]+)\}\}", '有$1%的几率使目标陷入麻痹状态。')
   $value = [regex]::Replace($value, "\{\{招式效果/畏缩\|([^|}]+)\}\}", '有$1%的几率使目标畏缩。')
   $value = [regex]::Replace($value, "\{\{招式效果/灼伤\|([^|}]+)\}\}", '有$1%的几率使目标陷入灼伤状态。')
@@ -279,8 +281,13 @@ function Convert-WikiTextToPlain {
   $value = [regex]::Replace($value, "\{\{招式效果/能力提升\|([^|}]+)\|([^|}]+)\|\|([^|}]+)\}\}", '使$3的$1提高$2级。')
   $value = [regex]::Replace($value, "\{\{招式效果/能力提升\|全部\|([^|}]+)\}\}", '使使用者的攻击、防御、特攻、特防和速度提高$1级。')
   $value = [regex]::Replace($value, "\{\{招式效果/能力提升\|([^|}]+)\|([^|}]+)\}\}", '使使用者的$1提高$2级。')
+  $value = [regex]::Replace($value, "\{\{招式效果/能力提升\|([^|}]+)\}\}", '使使用者的$1提高1级。')
   $value = [regex]::Replace($value, "\{\{招式效果/威力翻倍\|([^}]+)\}\}", '攻击目标造成伤害。$1时，招式威力变成2倍。')
   $value = [regex]::Replace($value, "\{\{招式效果/能力取代\|([^|}]+)\|([^|}]+)\}\}", '使用$1代替$2计算伤害。')
+  $value = [regex]::Replace($value, "\{\{招式效果/蓄力\|\|\{\{招式效果/能力提升\|特攻\|1\}\}\|note=.*?\}\}", "第一回合进行蓄力，使使用者的特攻提高1级。第二回合攻击。", [System.Text.RegularExpressions.RegexOptions]::Singleline)
+  $value = [regex]::Replace($value, "\{\{招式效果/蓄力\|\|使使用者的特攻提高1级。\|note=.*?\}\}", "第一回合进行蓄力，使使用者的特攻提高1级。第二回合攻击。", [System.Text.RegularExpressions.RegexOptions]::Singleline)
+  $value = [regex]::Replace($value, "\{\{招式效果/硬直\}\}", "攻击目标造成伤害。使用后下一回合无法行动。")
+  $value = [regex]::Replace($value, "\{\{招式效果/多回合攻击\|([^|}]+)\}\}", '连续攻击$1回合。')
   $value = [regex]::Replace($value, "\{\{招式效果/天气影响\|([^|}]+)\|([^|}]+)\}\}", '攻击目标造成伤害。使天气变为$1。携带$2时持续时间延长。')
   $value = [regex]::Replace($value, "\{\{招式效果/保护\|([^|}]+)\}\}", "进入守住状态。")
   $value = [regex]::Replace($value, "\{\{招式效果/反作用力伤害\|([^|}]+)\}\}", '使用者承受对目标造成伤害1/$1的反作用力伤害。')
@@ -293,11 +300,14 @@ function Convert-WikiTextToPlain {
   $value = [regex]::Replace($value, "\{\{frac\|([^|}]+)\|([^|}]+)\}\}", '$1/$2')
   $value = [System.Net.WebUtility]::HtmlDecode($value)
   $value = [regex]::Replace($value, "\{\{main\|([^}|]+)\}\}", "")
+  $value = [regex]::Replace($value, "\{\{NBPAGENAME\}\}", "该招式")
   $value = [regex]::Replace($value, "\{\{type\|([^}|]+)\}\}", '$1属性')
   $value = [regex]::Replace($value, "\{\{m\|([^}|]+)\}\}", '$1')
   $value = [regex]::Replace($value, "\{\{s\|([^}|]+)\}\}", '$1')
   $value = [regex]::Replace($value, "\{\{S\|([^}|]+)\}\}", '$1')
   $value = [regex]::Replace($value, "\{\{i\|([^}|]+)\}\}", '$1')
+  $value = [regex]::Replace($value, "\{\{I\|([^}|]+)\}\}", '$1')
+  $value = [regex]::Replace($value, "\{\{形态变化\|([^}|]+)\}\}", '$1')
   $value = [regex]::Replace($value, "\{\{stat\|([^}|]+)\}\}", '$1')
   $value = [regex]::Replace($value, "\{\{a\|([^}|]+)\}\}", '$1')
   $value = [regex]::Replace($value, "\{\{MSP\|[^}]+\}\}", "")
@@ -306,6 +316,7 @@ function Convert-WikiTextToPlain {
   $value = [regex]::Replace($value, "\{\{[^{}]+\}\}", "")
   $value = Convert-TraditionalTerms $value
   $value = [regex]::Replace($value, "'''?", "")
+  $value = [regex]::Replace($value, "(?m)^\s*=+[^=`r`n]+=+\s*", "")
   $value = [regex]::Replace($value, "(?m)^\s*[*#:;]+\s*", "")
   $value = [regex]::Replace($value, "(?m)^\s*[\{\}\|!].*$", "")
   $value = [regex]::Replace($value, "\s+", " ")
@@ -330,6 +341,7 @@ function Convert-TraditionalTerms {
     "信號" = "信号"
     "號" = "号"
     "會" = "会"
+    "隨" = "随"
     "屬性" = "属性"
     "屬" = "属"
     "寶可夢" = "宝可梦"
@@ -355,6 +367,9 @@ function Convert-TraditionalTerms {
     "電氣" = "电气"
     "電" = "电"
     "氣" = "气"
+    "強" = "强"
+    "鑽" = "钻"
+    "節" = "节"
     "鋼" = "钢"
     "蟲" = "虫"
     "飛" = "飞"
@@ -372,6 +387,7 @@ function Convert-TraditionalTerms {
     "發" = "发"
     "滿" = "满"
     "時" = "时"
+    "內" = "内"
     "換" = "换"
     "雙" = "双"
     "將" = "将"
@@ -418,7 +434,7 @@ function Test-TextQuality {
   if ($Text -match "<[^>]+>|&[a-zA-Z#0-9]+;|\{\{|\}\}|\[\[|\]\]") {
     return $false
   }
-  if ($Text -match "[對連寶會場號屬狀態變體檔擊兩現龍劍類擁個遊戲請見攜電氣鋼蟲飛惡霧無與並為傷觸禦極噴發滿時換雙將讓處異級敵標優來學擲幣獲這該傳給後轉]") {
+  if ($Text -match "[對連寶會場號屬狀態變體檔擊兩現龍劍類擁個遊戲請見攜電氣強鑽節鋼蟲飛惡霧無與並為傷觸禦極噴發滿時換雙將讓處異級敵標優來學擲幣獲這該傳給後轉]") {
     return $false
   }
   if ($Text -match "日文︰|英文︰|是第[一二三四五六七八九十]+世代引入|目前类似|游戏漏洞|；\s*；|如、|、等|拥有、|^.*（日文") {
