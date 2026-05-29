@@ -1295,7 +1295,7 @@ namespace PodexDesktop
                 RowTemplate = { Height = 22 }
             };
             grid.Columns.Add(MakeTextColumn("level", "Lv.", 72));
-            grid.Columns.Add(MakeTextColumn("move", "招式", fillParent ? 110 : 132));
+            grid.Columns.Add(MakeTextColumn("move", "招式", fillParent ? 96 : 132));
             grid.Columns.Add(MakeImageColumn("type", "属性", fillParent ? 44 : 58));
             grid.Columns.Add(MakeImageColumn("category", "分类", fillParent ? 44 : 58));
             grid.Columns.Add(MakeTextColumn("power", "威", 38));
@@ -1323,8 +1323,8 @@ namespace PodexDesktop
                 grid.Columns["pp"].Width +
                 grid.Columns["range"].Width +
                 grid.Columns["priority"].Width +
-                24;
-            grid.Columns["move"].Width = Math.Max(110, grid.ClientSize.Width - fixedWidth);
+                28;
+            grid.Columns["move"].Width = Math.Max(96, grid.ClientSize.Width - fixedWidth);
         }
 
         private int LegacyMoveGridHeight()
