@@ -102,6 +102,7 @@ function Get-EntitySuffix {
   if ($Entity -eq "move") { return "（招式）" }
   if ($Entity -eq "ability") { return "（特性）" }
   if ($Entity -eq "item") { return "（道具）" }
+  if ($Entity -eq "pokemon") { return "" }
   return ""
 }
 
@@ -114,12 +115,12 @@ function Find-WikiTitle {
     [int]$SourceId = 0
   )
   $suffix = Get-EntitySuffix $Entity
-  if ([string]::IsNullOrWhiteSpace($suffix)) {
+  if ([string]::IsNullOrWhiteSpace($suffix) -and $Entity -ne "pokemon") {
     return $null
   }
 
   if (-not [string]::IsNullOrWhiteSpace($ChineseName)) {
-    $directTitles = @($ChineseName + $suffix, $ChineseName)
+    $directTitles = if ([string]::IsNullOrWhiteSpace($suffix)) { @($ChineseName) } else { @($ChineseName + $suffix, $ChineseName) }
     foreach ($directTitle in $directTitles) {
       try {
         $content = Get-WikiText $directTitle
@@ -156,7 +157,7 @@ function Find-WikiTitle {
     }
     foreach ($hit in @($result.query.search)) {
       $isExactEntityTitle = -not [string]::IsNullOrWhiteSpace($ChineseName) -and $hit.title -eq $ChineseName
-      if ($hit.title -like "*$suffix" -or $Entity -eq "move" -or $isExactEntityTitle) {
+        if (($suffix -and $hit.title -like "*$suffix") -or $Entity -eq "move" -or $Entity -eq "pokemon" -or $isExactEntityTitle) {
         try {
           $content = Get-WikiText $hit.title
         } catch {
@@ -194,6 +195,11 @@ function Test-WikiPageMatch {
   if ($Entity -eq "ability" -and $Content -notmatch "\{\{特性信息框") {
     return $false
   }
+  if ($Entity -eq "pokemon" -and
+      $Content -notmatch "\{\{寶可夢信息框" -and
+      $Content -notmatch "\{\{宝可梦信息框") {
+    return $false
+  }
   if ($Entity -eq "item") {
     $hasItemTemplate = $Content -match "\{\{道具信息框" -or
       $Content -match "\{\{TRtable" -or
@@ -213,6 +219,15 @@ function Test-WikiPageMatch {
 
   if ($Entity -eq "move" -and $SourceId -gt 0) {
     $pageSourceId = Get-InfoboxField $Content @("n")
+    $parsedSourceId = 0
+    if (-not [string]::IsNullOrWhiteSpace($pageSourceId) -and
+        [int]::TryParse($pageSourceId, [ref]$parsedSourceId) -and
+        $parsedSourceId -ne $SourceId) {
+      return $false
+    }
+  }
+  if ($Entity -eq "pokemon" -and $SourceId -gt 0) {
+    $pageSourceId = Get-InfoboxField $Content @("ndex")
     $parsedSourceId = 0
     if (-not [string]::IsNullOrWhiteSpace($pageSourceId) -and
         [int]::TryParse($pageSourceId, [ref]$parsedSourceId) -and
@@ -415,6 +430,8 @@ function Convert-TraditionalTerms {
     "發" = "发"
     "滿" = "满"
     "時" = "时"
+    "牠" = "它"
+    "隻" = "只"
     "內" = "内"
     "換" = "换"
     "雙" = "双"
@@ -462,7 +479,7 @@ function Test-TextQuality {
   if ($Text -match "<[^>]+>|&[a-zA-Z#0-9]+;|\{\{|\}\}|\[\[|\]\]") {
     return $false
   }
-  if ($Text -match "[對連寶會場號屬狀態變體檔擊兩現龍劍類擁個遊戲請見攜電氣強鑽節鋼蟲飛惡霧無與並為傷觸禦極噴發滿時換雙將讓處異級敵標優來學擲幣獲這該傳給後轉]") {
+  if ($Text -match "[對連寶會場號屬狀態變體檔擊兩現龍劍類擁個遊戲請見攜電氣強鑽節鋼蟲飛惡霧無與並為傷觸禦極噴發滿時換雙將讓處異級敵標優來學擲幣獲這該傳給後轉牠隻]") {
     return $false
   }
   if ($Text -match "日文︰|英文︰|是第[一二三四五六七八九十]+世代引入|目前类似|游戏漏洞|；\s*；|如、|、等|拥有、|^.*（日文") {
@@ -551,7 +568,7 @@ function Get-SectionBody {
     [string]$Content,
     [string]$Name
   )
-  $pattern = "(?ms)^==\s*" + [regex]::Escape($Name) + "\s*==\s*(?<body>.*?)(?=^==[^=].*?==|\z)"
+  $pattern = "(?ms)^={2,}\s*" + [regex]::Escape($Name) + "\s*={2,}\s*(?<body>.*?)(?=^={2,}[^=`r`n].*?={2,}\s*$|\z)"
   $match = [regex]::Match($Content, $pattern)
   if ($match.Success) {
     return $match.Groups["body"].Value
@@ -626,6 +643,26 @@ function Get-ItemBagDescriptionFromSection {
     $description = Convert-WikiTextToPlain $parts[5]
     if (-not [string]::IsNullOrWhiteSpace($description) -and $generation -ge $bestGeneration) {
       $bestGeneration = $generation
+      $bestDescription = $description
+    }
+  }
+  return $bestDescription
+}
+
+function Get-PokemonPokedexDescription {
+  param([string]$Content)
+
+  $section = Get-SectionBody $Content "图鉴介绍"
+  if ([string]::IsNullOrWhiteSpace($section)) {
+    return ""
+  }
+
+  $bestDescription = ""
+  foreach ($line in ($section -split "`n")) {
+    if ($line -notmatch "^\|\s*[A-Za-z0-9]+dex\s*=\s*(?<value>.+?)\s*$") { continue }
+    $rawDescription = ([regex]::Split($Matches["value"], "<hr\s*/?>"))[0]
+    $description = Convert-WikiTextToPlain $rawDescription
+    if (-not [string]::IsNullOrWhiteSpace($description)) {
       $bestDescription = $description
     }
   }
@@ -714,9 +751,22 @@ function Get-EntityDescription {
     return $description
   }
 
+  if ($Entity -eq "pokemon") {
+    $description = Get-PokemonPokedexDescription $Content
+    if ([string]::IsNullOrWhiteSpace($description)) {
+      $description = Convert-WikiTextToPlain (Get-SectionBody $Content "概述")
+    }
+    if ([string]::IsNullOrWhiteSpace($description)) {
+      $description = Convert-WikiTextToPlain $Snippet
+    }
+    return $description
+  }
+
   return ""
 }
 
+$pokemonEnglishNames = Get-LocalizedNameMap (Join-Path $SourcePath "pokemon_species_names.csv") "pokemon_species_id" "9"
+$pokemonChineseNames = Get-LocalizedNameMap (Join-Path $SourcePath "pokemon_species_names.csv") "pokemon_species_id" "12"
 $moveEnglishNames = Get-LocalizedNameMap (Join-Path $SourcePath "move_names.csv") "move_id" "9"
 $moveChineseNames = Get-LocalizedNameMap (Join-Path $SourcePath "move_names.csv") "move_id" "12"
 $abilityEnglishNames = Get-LocalizedNameMap (Join-Path $SourcePath "ability_names.csv") "ability_id" "9"
@@ -758,6 +808,9 @@ foreach ($row in $missingRows) {
   if ($row.entity -eq "move") {
     if ($moveEnglishNames.ContainsKey($sourceId)) { $englishName = $moveEnglishNames[$sourceId] }
     if ($moveChineseNames.ContainsKey($sourceId)) { $chineseName = $moveChineseNames[$sourceId] }
+  } elseif ($row.entity -eq "pokemon") {
+    if ($pokemonEnglishNames.ContainsKey($sourceId)) { $englishName = $pokemonEnglishNames[$sourceId] }
+    if ($pokemonChineseNames.ContainsKey($sourceId)) { $chineseName = $pokemonChineseNames[$sourceId] }
   } elseif ($row.entity -eq "ability") {
     if ($abilityEnglishNames.ContainsKey($sourceId)) { $englishName = $abilityEnglishNames[$sourceId] }
     if ($abilityChineseNames.ContainsKey($sourceId)) { $chineseName = $abilityChineseNames[$sourceId] }
