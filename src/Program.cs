@@ -65,6 +65,8 @@ namespace PodexDesktop
         private int abilityFilterTriggerId = -1;
         private int abilityFilterTargetId = -1;
         private int abilityFilterEffectOnId = -1;
+        private bool pokemonSmallImagesLoaded;
+        private bool itemSmallImagesLoaded;
 
         public MainForm()
         {
@@ -268,7 +270,8 @@ namespace PodexDesktop
             if (root.learnsets == null) root.learnsets = new List<LearnsetEntry>();
             IndexData();
             imageRoot = FindImageRoot();
-            LoadSmallImages();
+            InitializeSmallImageLists();
+            EnsurePokemonSmallImages();
             SelectModule("pokemon");
         }
 
@@ -403,7 +406,7 @@ namespace PodexDesktop
             return "";
         }
 
-        private void LoadSmallImages()
+        private void InitializeSmallImageLists()
         {
             pokemonSmallImages.Images.Clear();
             pokemonSmallImages.ImageSize = new Size(40, 32);
@@ -411,9 +414,23 @@ namespace PodexDesktop
             itemSmallImages.Images.Clear();
             itemSmallImages.ImageSize = new Size(32, 32);
             itemSmallImages.ColorDepth = ColorDepth.Depth32Bit;
+            pokemonSmallImagesLoaded = false;
+            itemSmallImagesLoaded = false;
+        }
 
+        private void EnsurePokemonSmallImages()
+        {
+            if (pokemonSmallImagesLoaded) return;
+            pokemonSmallImagesLoaded = true;
             if (string.IsNullOrWhiteSpace(imageRoot)) return;
             LoadImageList(pokemonSmallImages, Path.Combine(imageRoot, "pokemon", "small"));
+        }
+
+        private void EnsureItemSmallImages()
+        {
+            if (itemSmallImagesLoaded) return;
+            itemSmallImagesLoaded = true;
+            if (string.IsNullOrWhiteSpace(imageRoot)) return;
             LoadImageList(itemSmallImages, Path.Combine(imageRoot, "items", "small"));
         }
 
@@ -478,6 +495,7 @@ namespace PodexDesktop
             list.Columns.Clear();
             if (module.StartsWith("pokemon"))
             {
+                EnsurePokemonSmallImages();
                 list.SmallImageList = pokemonSmallImages;
                 titleLabel.Text = module == "pokemon-classic" ? "宝可梦 (经典版)" : "宝可梦";
                 list.Columns.Add("#", 70);
@@ -513,6 +531,7 @@ namespace PodexDesktop
             }
             else if (module == "items")
             {
+                EnsureItemSmallImages();
                 list.SmallImageList = itemSmallImages;
                 titleLabel.Text = "道具";
                 list.Columns.Add("#", 84);
@@ -886,18 +905,50 @@ namespace PodexDesktop
                 Dock = DockStyle.Fill,
                 Margin = new Padding(0)
             };
-            tabs.TabPages.Add(BuildPokemonInfoTab(p));
-            tabs.TabPages.Add(BuildPokemonFilterTab(p));
-            tabs.TabPages.Add(BuildPokemonMoveFilterTab(p));
+            var infoPage = BuildPokemonInfoTab(p);
+            infoPage.Tag = "built";
+            tabs.TabPages.Add(infoPage);
+            tabs.TabPages.Add(MakeLazyPokemonTab("详细信息"));
+            tabs.TabPages.Add(MakeLazyPokemonTab("筛选（按招式）"));
             if (pokemonDetailTabIndex >= 0 && pokemonDetailTabIndex < tabs.TabPages.Count)
             {
                 tabs.SelectedIndex = pokemonDetailTabIndex;
             }
+            EnsurePokemonTabBuilt(tabs, p);
             tabs.SelectedIndexChanged += delegate
             {
                 pokemonDetailTabIndex = tabs.SelectedIndex;
+                EnsurePokemonTabBuilt(tabs, p);
             };
             details.Controls.Add(tabs);
+        }
+
+        private static TabPage MakeLazyPokemonTab(string title)
+        {
+            var page = MakeTabPage(title);
+            page.Tag = "lazy";
+            return page;
+        }
+
+        private void EnsurePokemonTabBuilt(TabControl tabs, PokemonEntry p)
+        {
+            if (tabs.SelectedIndex < 0 || tabs.SelectedIndex >= tabs.TabPages.Count) return;
+            TabPage page = tabs.TabPages[tabs.SelectedIndex];
+            if ((page.Tag as string) == "built") return;
+
+            TabPage built = tabs.SelectedIndex == 1 ? BuildPokemonFilterTab(p) : BuildPokemonMoveFilterTab(p);
+            page.SuspendLayout();
+            page.Controls.Clear();
+            page.Padding = built.Padding;
+            page.BackColor = built.BackColor;
+            while (built.Controls.Count > 0)
+            {
+                Control control = built.Controls[0];
+                built.Controls.RemoveAt(0);
+                page.Controls.Add(control);
+            }
+            page.Tag = "built";
+            page.ResumeLayout();
         }
 
         private TabPage BuildPokemonInfoTab(PokemonEntry p)
@@ -2333,7 +2384,7 @@ namespace PodexDesktop
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 86));
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
-            for (int i = 0; i < 4; i++) panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+            for (int i = 0; i < 4; i++) panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
 
             AddAbilityFilterSearchRow(panel, 0);
             AddAbilityFilterOptionRow(panel, 1, "发动时间", AbilityFilterOptions(a => a.trigger), ability.trigger == null ? -1 : ability.trigger.id, abilityFilterTriggerId, delegate(int id) { abilityFilterTriggerId = id; });
@@ -2374,7 +2425,7 @@ namespace PodexDesktop
 
         private void AddAbilityFilterOptionRow(TableLayoutPanel panel, int row, string label, List<NamedRef> options, int preferredId, int selectedId, Action<int> setFilter)
         {
-            var check = new CheckBox { Dock = DockStyle.Fill, Checked = selectedId > 0, Margin = new Padding(0, 4, 0, 0) };
+            var check = new CheckBox { Dock = DockStyle.Fill, Checked = selectedId > 0, Margin = new Padding(0, 6, 0, 0) };
             panel.Controls.Add(check, 0, row);
             panel.Controls.Add(new Label
             {
@@ -2391,7 +2442,7 @@ namespace PodexDesktop
                 Dock = DockStyle.Fill,
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 Enabled = selectedId > 0,
-                Margin = new Padding(0, 1, 3, 1)
+                Margin = new Padding(0, 3, 4, 3)
             };
             foreach (var option in options)
             {
@@ -2429,7 +2480,7 @@ namespace PodexDesktop
                 Text = check != null && check.Checked ? "-" : "+",
                 Dock = DockStyle.Fill,
                 Enabled = check != null && combo != null,
-                Margin = new Padding(1, 2, 0, 2)
+                Margin = new Padding(1, 3, 0, 3)
             };
         }
 
