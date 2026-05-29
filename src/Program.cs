@@ -215,6 +215,7 @@ namespace PodexDesktop
             list.DrawSubItem += DrawListSubItem;
             list.MouseMove += HandleListMouseMove;
             list.MouseLeave += delegate { HideListTooltip(); };
+            list.Resize += delegate { ResizeListColumnsToFit(); };
 
             details.Dock = DockStyle.Fill;
             details.AutoScroll = true;
@@ -257,6 +258,7 @@ namespace PodexDesktop
             if (target > maxTarget) target = maxTarget;
             if (target < mainSplit.Panel1MinSize) target = mainSplit.Panel1MinSize;
             if (target > 0 && target < mainSplit.Width) mainSplit.SplitterDistance = target;
+            ResizeListColumnsToFit();
         }
 
         private void AddNavButton(string text, string key)
@@ -856,6 +858,83 @@ namespace PodexDesktop
                 list.Columns.Add("状态", 260);
             }
             list.EndUpdate();
+            ResizeListColumnsToFit();
+        }
+
+        private void ResizeListColumnsToFit()
+        {
+            if (list.Columns.Count == 0 || list.ClientSize.Width <= 0) return;
+            if (module.StartsWith("pokemon"))
+            {
+                ResizePokemonListColumns();
+            }
+            else if (module == "moves")
+            {
+                ResizeMoveListColumns();
+            }
+            else if (module == "items")
+            {
+                ResizeItemListColumns();
+            }
+        }
+
+        private void ResizePokemonListColumns()
+        {
+            if (list.Columns.Count < 12) return;
+            int[] widths = new[] { 38, 28, 80, 44, 44, 30, 38, 38, 40, 40, 40, 40 };
+            int available = ListColumnAvailableWidth();
+            int extra = available - widths.Sum();
+            if (extra > 0) AddWidth(widths, 2, 100, ref extra);
+            if (extra > 0) AddWidth(widths, 3, 14, ref extra);
+            if (extra > 0) AddWidth(widths, 4, 14, ref extra);
+            for (int i = 5; extra > 0 && i < widths.Length; i++) AddWidth(widths, i, 10, ref extra);
+            if (extra > 0) widths[2] += extra;
+            ApplyListColumnWidths(widths);
+        }
+
+        private void ResizeMoveListColumns()
+        {
+            if (list.Columns.Count < 9) return;
+            int[] widths = new[] { 36, 112, 46, 50, 42, 42, 32, 42, 28 };
+            int available = ListColumnAvailableWidth();
+            int extra = available - widths.Sum();
+            if (extra > 0) AddWidth(widths, 1, 180, ref extra);
+            if (extra > 0) AddWidth(widths, 2, 12, ref extra);
+            if (extra > 0) AddWidth(widths, 3, 12, ref extra);
+            if (extra > 0) AddWidth(widths, 7, 8, ref extra);
+            if (extra > 0) widths[1] += extra;
+            ApplyListColumnWidths(widths);
+        }
+
+        private void ResizeItemListColumns()
+        {
+            if (list.Columns.Count < 3) return;
+            int[] widths = new[] { 36, 170, 34 };
+            int available = ListColumnAvailableWidth();
+            int extra = available - widths.Sum();
+            if (extra > 0) widths[1] += extra;
+            ApplyListColumnWidths(widths);
+        }
+
+        private int ListColumnAvailableWidth()
+        {
+            return Math.Max(0, list.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 4);
+        }
+
+        private static void AddWidth(int[] widths, int index, int maxExtra, ref int extra)
+        {
+            int add = Math.Min(maxExtra, extra);
+            widths[index] += add;
+            extra -= add;
+        }
+
+        private void ApplyListColumnWidths(int[] widths)
+        {
+            int count = Math.Min(widths.Length, list.Columns.Count);
+            for (int i = 0; i < count; i++)
+            {
+                if (list.Columns[i].Width != widths[i]) list.Columns[i].Width = widths[i];
+            }
         }
 
         private void BuildFilters()
@@ -2471,6 +2550,9 @@ namespace PodexDesktop
                 RowTemplate = { Height = 22 },
                 ShowCellToolTips = true
             };
+            grid.DefaultCellStyle.Font = OriginalNameFont;
+            grid.ColumnHeadersDefaultCellStyle.Font = OriginalNameFont;
+            grid.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
             grid.Columns.Add(MakeTextColumn("level", "Lv.", 72));
             grid.Columns.Add(MakeTextColumn("move", "招式", fillParent ? 96 : 132));
             grid.Columns.Add(MakeImageColumn("type", "属性", fillParent ? 44 : 58));
