@@ -784,10 +784,28 @@ namespace PodexDesktop
         {
             if (filter == null || !filter.Enabled) return true;
 
+            string filterText = string.IsNullOrWhiteSpace(filter.ValueText) ? filter.Value.ToString("0") : filter.ValueText;
+            string moveText = MoveDisplayValue(value, preserveMinusOne);
+            if (filter.Operator == "!=")
+            {
+                if (filterText == "--") return moveText != "--";
+
+                decimal moveNumberForNotEquals;
+                decimal filterNumberForNotEquals;
+                if (!decimal.TryParse(filterText.Trim().TrimStart('#').Replace(",", ""), out filterNumberForNotEquals)) return true;
+                if (!TryMoveFilterNumber(value, preserveMinusOne, out moveNumberForNotEquals)) return true;
+                return moveNumberForNotEquals.CompareTo(filterNumberForNotEquals) != 0;
+            }
+
+            if (filterText == "--") return filter.Operator == "=" && moveText == "--";
+
             decimal number;
             if (!TryMoveFilterNumber(value, preserveMinusOne, out number)) return false;
 
-            int comparison = number.CompareTo(filter.Value);
+            decimal filterNumber;
+            if (!decimal.TryParse(filterText.Trim().TrimStart('#').Replace(",", ""), out filterNumber)) return false;
+
+            int comparison = number.CompareTo(filterNumber);
             switch (filter.Operator)
             {
                 case ">": return comparison > 0;
@@ -2479,8 +2497,8 @@ namespace PodexDesktop
             };
             stack.Controls.Add(MakeMoveFilterSearchPanel());
             stack.Controls.Add(MakeMoveFilterNumberPanel("威力", move == null ? null : move.power, moveModulePowerFilter, false, 0, 999));
-            stack.Controls.Add(MakeMoveFilterNumberPanel("命中", move == null ? null : move.accuracy, moveModuleAccuracyFilter, false, 0, 100));
-            stack.Controls.Add(MakeMoveFilterNumberPanel("PP", move == null ? null : move.pp, moveModulePpFilter, false, 0, 999));
+            stack.Controls.Add(MakeMoveFilterPresetPanel("命中", move == null ? null : move.accuracy, root.moves.Select(m => m.accuracy), moveModuleAccuracyFilter, "%"));
+            stack.Controls.Add(MakeMoveFilterPresetPanel("PP", move == null ? null : move.pp, root.moves.Select(m => m.pp), moveModulePpFilter, ""));
             stack.Controls.Add(MakeMoveFilterNumberPanel("优先级", move == null ? null : move.priority, moveModulePriorityFilter, true, -10, 10));
             stack.Controls.Add(MakeMoveFilterChoicePanel("招式 / 秘传", new[] { "—", "招式", "秘传" }, moveModuleMachineFilter, delegate(string value) { moveModuleMachineFilter = value; }));
             stack.Controls.Add(MakeMoveFilterSection("属性", MakeMoveTypeFilterButtons()));
@@ -2562,6 +2580,7 @@ namespace PodexDesktop
             op.Items.Add("<");
             op.Items.Add(">=");
             op.Items.Add("<=");
+            op.Items.Add("!=");
             op.SelectedItem = string.IsNullOrWhiteSpace(filter.Operator) ? "=" : filter.Operator;
             if (op.SelectedIndex < 0) op.SelectedIndex = 0;
             panel.Controls.Add(op, 2, 0);
@@ -2609,6 +2628,7 @@ namespace PodexDesktop
                 {
                     filter.Operator = op.SelectedItem == null ? "=" : op.SelectedItem.ToString();
                     filter.Value = number.Value;
+                    filter.ValueText = number.Value.ToString("0");
                 }
                 ApplyFilters();
             };
@@ -2618,6 +2638,113 @@ namespace PodexDesktop
             if (number != null) number.ValueChanged += delegate { if (check.Checked) apply(); };
             toggle.Click += delegate { check.Checked = !check.Checked; };
             return panel;
+        }
+
+        private Control MakeMoveFilterPresetPanel(string label, object rawValue, IEnumerable<object> allValues, MoveNumericFilter filter, string suffix)
+        {
+            var panel = MakeMoveFilterRowPanel();
+            var options = BuildMoveFilterPresetOptions(allValues, suffix);
+            string currentValue = filter.Enabled && !string.IsNullOrWhiteSpace(filter.ValueText)
+                ? filter.ValueText
+                : MoveValue(rawValue);
+
+            var check = new CheckBox
+            {
+                Dock = DockStyle.Fill,
+                Checked = filter.Enabled,
+                Enabled = options.Count > 0,
+                Margin = new Padding(0, 6, 0, 0)
+            };
+            panel.Controls.Add(check, 0, 0);
+            panel.Controls.Add(new Label
+            {
+                Text = label,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                ForeColor = Color.FromArgb(23, 32, 27),
+                Font = new Font("Segoe UI", 9f),
+                Margin = new Padding(0)
+            }, 1, 0);
+
+            var op = new ComboBox
+            {
+                Dock = DockStyle.Fill,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Enabled = filter.Enabled,
+                Margin = new Padding(0, 3, 4, 3)
+            };
+            op.Items.Add("=");
+            op.Items.Add(">");
+            op.Items.Add("<");
+            op.Items.Add(">=");
+            op.Items.Add("<=");
+            op.Items.Add("!=");
+            op.SelectedItem = string.IsNullOrWhiteSpace(filter.Operator) ? "=" : filter.Operator;
+            if (op.SelectedIndex < 0) op.SelectedIndex = 0;
+            panel.Controls.Add(op, 2, 0);
+
+            var value = new ComboBox
+            {
+                Dock = DockStyle.Fill,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Enabled = filter.Enabled,
+                Margin = new Padding(0, 3, 4, 3)
+            };
+            foreach (var option in options)
+            {
+                int index = value.Items.Add(option);
+                if (option.Value == currentValue) value.SelectedIndex = index;
+            }
+            if (value.SelectedIndex < 0 && value.Items.Count > 0) value.SelectedIndex = 0;
+            panel.Controls.Add(value, 3, 0);
+
+            Button toggle = MakeMoveFilterToggleButton(check);
+            panel.Controls.Add(toggle, 4, 0);
+
+            Action apply = delegate
+            {
+                op.Enabled = check.Checked;
+                value.Enabled = check.Checked;
+                toggle.Text = check.Checked ? "-" : "+";
+                filter.Enabled = check.Checked;
+                if (filter.Enabled)
+                {
+                    var option = value.SelectedItem as FilterOption;
+                    string selectedValue = option == null ? "--" : option.Value;
+                    filter.Operator = op.SelectedItem == null ? "=" : op.SelectedItem.ToString();
+                    filter.ValueText = selectedValue;
+                    decimal numericValue;
+                    if (decimal.TryParse(selectedValue.Trim().TrimStart('#').Replace(",", ""), out numericValue))
+                    {
+                        filter.Value = numericValue;
+                    }
+                }
+                ApplyFilters();
+            };
+
+            check.CheckedChanged += delegate { apply(); };
+            op.SelectedIndexChanged += delegate { if (check.Checked) apply(); };
+            value.SelectedIndexChanged += delegate { if (check.Checked) apply(); };
+            toggle.Click += delegate { check.Checked = !check.Checked; };
+            return panel;
+        }
+
+        private static List<FilterOption> BuildMoveFilterPresetOptions(IEnumerable<object> values, string suffix)
+        {
+            var result = new List<FilterOption>();
+            foreach (string value in values.Select(MoveValue).Distinct().OrderBy(MovePresetSortKey))
+            {
+                string label = value == "--" ? "—" : value + suffix;
+                result.Add(new FilterOption(value, label));
+            }
+            return result;
+        }
+
+        private static double MovePresetSortKey(string value)
+        {
+            if (value == "--") return -1;
+            double number;
+            return TrySortNumber(value, out number) ? number : double.MaxValue;
         }
 
         private Control MakeMoveFilterChoicePanel(string label, string[] values, string activeValue, Action<string> setFilter)
@@ -4380,11 +4507,13 @@ namespace PodexDesktop
         public MoveNumericFilter()
         {
             Operator = "=";
+            ValueText = "0";
         }
 
         public bool Enabled { get; set; }
         public string Operator { get; set; }
         public decimal Value { get; set; }
+        public string ValueText { get; set; }
     }
 
     public sealed class FilterOption
