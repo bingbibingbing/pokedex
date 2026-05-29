@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
@@ -75,11 +77,23 @@ namespace PodexDesktop
         private int abilityFilterTriggerId = -1;
         private int abilityFilterTargetId = -1;
         private int abilityFilterEffectOnId = -1;
+        private string itemFilterSearchText = "";
+        private int itemFilterInBattle = -1;
+        private int itemFilterOutBattle = -1;
+        private int itemFilterOneTime = -1;
+        private int itemFilterHeldEffect = -1;
+        private int itemFilterEvolveRelated = -1;
+        private int itemFilterBagId = -1;
         private bool pokemonSmallImagesLoaded;
         private bool itemSmallImagesLoaded;
+        private bool suppressAutoSelectFirstItem;
+        private static readonly PropertyInfo DoubleBufferedProperty = typeof(Control).GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly Dictionary<IntPtr, int> RedrawSuspendDepth = new Dictionary<IntPtr, int>();
 
         public MainForm()
         {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            DoubleBuffered = true;
             Text = "Podex Desktop";
             MinimumSize = new Size(1180, 740);
             Size = new Size(1320, 840);
@@ -91,6 +105,7 @@ namespace PodexDesktop
             abilityToolTip.ReshowDelay = 100;
             abilityToolTip.AutoPopDelay = 8000;
             BuildLayout();
+            EnableDoubleBufferingRecursive(this);
             Load += delegate { LoadData(); };
             Shown += delegate { ApplyOriginalLikeSplitter(); };
         }
@@ -217,8 +232,8 @@ namespace PodexDesktop
             if (mainSplit.Panel1Collapsed || IsMatrixModule()) return;
 
             int total = Math.Max(0, mainSplit.Width - mainSplit.SplitterWidth);
-            int panel1Min = module == "moves" ? 486 : 520;
-            int panel2Min = module == "moves" ? 620 : 420;
+            int panel1Min = module == "moves" ? 486 : (module == "items" ? 270 : 520);
+            int panel2Min = module == "moves" ? 620 : (module == "items" ? 360 : 420);
             if (total < panel1Min + panel2Min)
             {
                 panel2Min = Math.Max(300, total - panel1Min);
@@ -230,7 +245,9 @@ namespace PodexDesktop
 
             int target = module == "moves"
                 ? Math.Min(500, Math.Max(panel1Min, total - 700))
-                : Math.Min(640, Math.Max(panel1Min, mainSplit.Width - 560 - mainSplit.SplitterWidth));
+                : (module == "items"
+                    ? Math.Min(300, Math.Max(panel1Min, total - 720))
+                    : Math.Min(640, Math.Max(panel1Min, mainSplit.Width - 560 - mainSplit.SplitterWidth)));
             int maxTarget = mainSplit.Width - mainSplit.Panel2MinSize - mainSplit.SplitterWidth;
             if (target > maxTarget) target = maxTarget;
             if (target < mainSplit.Panel1MinSize) target = mainSplit.Panel1MinSize;
@@ -472,17 +489,30 @@ namespace PodexDesktop
 
         private void SelectModule(string key)
         {
-            module = key;
-            sortColumn = -1;
-            sortAscending = true;
-            ConfigureModuleChrome();
-            rebuildingFilters = true;
-            searchBox.Clear();
-            rebuildingFilters = false;
-            ConfigureListColumns();
-            BuildFilters();
-            ApplyFilters();
-            ApplyOriginalLikeSplitter();
+            RunWithRedrawSuspended(this, delegate
+            {
+                SuspendLayout();
+                if (mainSplit != null) mainSplit.SuspendLayout();
+                try
+                {
+                    module = key;
+                    sortColumn = -1;
+                    sortAscending = true;
+                    ConfigureModuleChrome();
+                    rebuildingFilters = true;
+                    searchBox.Clear();
+                    rebuildingFilters = false;
+                    ConfigureListColumns();
+                    BuildFilters();
+                    ApplyFilters();
+                    ApplyOriginalLikeSplitter();
+                }
+                finally
+                {
+                    if (mainSplit != null) mainSplit.ResumeLayout(false);
+                    ResumeLayout(true);
+                }
+            });
         }
 
         private void ConfigureModuleChrome()
@@ -538,12 +568,57 @@ namespace PodexDesktop
         private void DrawListSubItem(object sender, DrawListViewSubItemEventArgs e)
         {
             var move = e.Item.Tag as MoveEntry;
-            if (module != "moves" || move == null)
+            if (module == "moves" && move != null)
             {
-                e.DrawDefault = true;
+                DrawMoveListSubItem(e, move);
                 return;
             }
 
+            var pokemon = e.Item.Tag as PokemonEntry;
+            if (module.StartsWith("pokemon") && pokemon != null)
+            {
+                DrawPokemonListSubItem(e, pokemon);
+                return;
+            }
+
+            var item = e.Item.Tag as ItemEntry;
+            if (module == "items" && item != null)
+            {
+                DrawItemListSubItem(e, item);
+                return;
+            }
+
+            e.DrawDefault = true;
+        }
+
+        private void DrawPokemonListSubItem(DrawListViewSubItemEventArgs e, PokemonEntry pokemon)
+        {
+            bool selected = e.Item.Selected;
+            Color backColor = selected ? SystemColors.Highlight : MoveListCellBackColor(e.SubItem);
+            Color foreColor = selected ? SystemColors.HighlightText : (e.SubItem.ForeColor == Color.Empty ? Color.Black : e.SubItem.ForeColor);
+            using (var brush = new SolidBrush(backColor))
+            {
+                e.Graphics.FillRectangle(brush, e.Bounds);
+            }
+
+            if (e.ColumnIndex == 1)
+            {
+                DrawCenteredCellImage(e.Graphics, e.Bounds, LoadCellImage(PokemonImagePath(pokemon.legacyId, false)));
+            }
+            else
+            {
+                int padding = e.ColumnIndex == 0 ? 4 : (e.ColumnIndex >= 3 && e.ColumnIndex <= 4 ? 2 : 4);
+                DrawListCellText(e.Graphics, e.Bounds, e.SubItem.Text, foreColor, padding);
+            }
+
+            using (var pen = new Pen(Color.FromArgb(205, 205, 205)))
+            {
+                e.Graphics.DrawRectangle(pen, e.Bounds.Left, e.Bounds.Top, e.Bounds.Width - 1, e.Bounds.Height - 1);
+            }
+        }
+
+        private void DrawMoveListSubItem(DrawListViewSubItemEventArgs e, MoveEntry move)
+        {
             bool selected = e.Item.Selected;
             Color backColor = selected ? SystemColors.Highlight : MoveListCellBackColor(e.SubItem);
             Color foreColor = selected ? SystemColors.HighlightText : MoveListCellForeColor(e.SubItem, e.ColumnIndex);
@@ -558,10 +633,50 @@ namespace PodexDesktop
             }
             else
             {
-                TextFormatFlags flags = TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis;
-                Rectangle textBounds = new Rectangle(e.Bounds.Left + 4, e.Bounds.Top, Math.Max(0, e.Bounds.Width - 8), e.Bounds.Height);
-                TextRenderer.DrawText(e.Graphics, e.SubItem.Text, list.Font, textBounds, foreColor, flags);
+                DrawListCellText(e.Graphics, e.Bounds, e.SubItem.Text, foreColor, 4);
             }
+        }
+
+        private void DrawItemListSubItem(DrawListViewSubItemEventArgs e, ItemEntry item)
+        {
+            bool selected = e.Item.Selected;
+            Color backColor = selected ? SystemColors.Highlight : Color.FromArgb(255, 250, 237);
+            Color foreColor = selected ? SystemColors.HighlightText : Color.Black;
+            using (var brush = new SolidBrush(backColor))
+            {
+                e.Graphics.FillRectangle(brush, e.Bounds);
+            }
+
+            if (e.ColumnIndex == 1)
+            {
+                Image image = LoadCellImage(ItemImagePath(item.id, false));
+                if (image != null)
+                {
+                    Rectangle imageBounds = new Rectangle(e.Bounds.Left + 4, e.Bounds.Top + 2, 20, Math.Max(4, e.Bounds.Height - 4));
+                    DrawCenteredCellImage(e.Graphics, imageBounds, image);
+                }
+                DrawListCellText(e.Graphics, e.Bounds, e.SubItem.Text, foreColor, 28);
+            }
+            else if (e.ColumnIndex == 2)
+            {
+                DrawCenteredCellImage(e.Graphics, e.Bounds, LoadCellImage(ItemBagImagePath(item.bagId)));
+            }
+            else
+            {
+                DrawListCellText(e.Graphics, e.Bounds, e.SubItem.Text, foreColor, 4);
+            }
+
+            using (var pen = new Pen(Color.FromArgb(205, 205, 205)))
+            {
+                e.Graphics.DrawRectangle(pen, e.Bounds.Left, e.Bounds.Top, e.Bounds.Width - 1, e.Bounds.Height - 1);
+            }
+        }
+
+        private void DrawListCellText(Graphics graphics, Rectangle bounds, string text, Color foreColor, int leftPadding)
+        {
+            TextFormatFlags flags = TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis;
+            Rectangle textBounds = new Rectangle(bounds.Left + leftPadding, bounds.Top, Math.Max(0, bounds.Width - leftPadding - 4), bounds.Height);
+            TextRenderer.DrawText(graphics, text, list.Font, textBounds, foreColor, flags);
         }
 
         private static Color MoveListCellBackColor(ListViewItem.ListViewSubItem subItem)
@@ -591,21 +706,21 @@ namespace PodexDesktop
             list.Columns.Clear();
             if (module.StartsWith("pokemon"))
             {
-                list.OwnerDraw = false;
-                EnsurePokemonSmallImages();
-                list.SmallImageList = pokemonSmallImages;
+                list.OwnerDraw = true;
+                list.SmallImageList = null;
                 titleLabel.Text = module == "pokemon-classic" ? "宝可梦 (经典版)" : "宝可梦";
-                list.Columns.Add("#", 70);
-                list.Columns.Add("名字", 104);
-                list.Columns.Add("属性", 54);
-                list.Columns.Add("属性", 54);
-                list.Columns.Add("HP", 42);
-                list.Columns.Add("攻击", 48);
-                list.Columns.Add("防御", 48);
-                list.Columns.Add("特攻", 48);
-                list.Columns.Add("特防", 48);
-                list.Columns.Add("速度", 48);
-                list.Columns.Add("合计", 52);
+                list.Columns.Add("#", 38);
+                list.Columns.Add("", 28);
+                list.Columns.Add("名字", 80);
+                list.Columns.Add("属性", 44);
+                list.Columns.Add("属性", 44);
+                list.Columns.Add("HP", 30);
+                list.Columns.Add("攻击", 38);
+                list.Columns.Add("防御", 38);
+                list.Columns.Add("特攻", 40);
+                list.Columns.Add("特防", 40);
+                list.Columns.Add("速度", 40);
+                list.Columns.Add("合计", 40);
             }
             else if (module == "moves")
             {
@@ -633,15 +748,12 @@ namespace PodexDesktop
             }
             else if (module == "items")
             {
-                list.OwnerDraw = false;
-                EnsureItemSmallImages();
-                list.SmallImageList = itemSmallImages;
+                list.OwnerDraw = true;
+                list.SmallImageList = null;
                 titleLabel.Text = "道具";
-                list.Columns.Add("#", 84);
-                list.Columns.Add("名字", 150);
-                list.Columns.Add("English", 150);
-                list.Columns.Add("价格", 78);
-                list.Columns.Add("背包", 72);
+                list.Columns.Add("#", 36);
+                list.Columns.Add("名字", 170);
+                list.Columns.Add("背", 34);
             }
             else if (module == "type-effect")
             {
@@ -774,7 +886,9 @@ namespace PodexDesktop
             {
                 foreach (var item in root.items.Where(i =>
                     Match(query, ItemSearchText(i)) &&
-                    (generation.Length == 0 || ItemInGeneration(i, int.Parse(generation)))))
+                    Match(itemFilterSearchText.Trim().ToLowerInvariant(), ItemSearchText(i)) &&
+                    (generation.Length == 0 || ItemInGeneration(i, int.Parse(generation))) &&
+                    ItemMatchesDetailFilters(i)))
                 {
                     AddItemRow(item);
                 }
@@ -801,12 +915,12 @@ namespace PodexDesktop
             ApplyCurrentSort();
             list.EndUpdate();
             UpdateModuleTitleWithCount();
-            if (list.Items.Count > 0)
+            if (list.Items.Count > 0 && !suppressAutoSelectFirstItem)
             {
                 list.Items[0].Selected = true;
                 list.Select();
             }
-            else
+            else if (list.Items.Count == 0)
             {
                 details.Controls.Clear();
                 if (module == "moves")
@@ -842,19 +956,29 @@ namespace PodexDesktop
 
         private void ShowMatrixModule()
         {
-            details.SuspendLayout();
-            details.Controls.Clear();
-            details.Padding = new Padding(12);
-            details.AutoScroll = false;
-            if (module == "type-effect")
+            RunWithRedrawSuspended(details, delegate
             {
-                details.Controls.Add(MakeTypeEffectMatrix());
-            }
-            else if (module == "natures")
-            {
-                details.Controls.Add(MakeNatureEffectMatrix());
-            }
-            details.ResumeLayout();
+                details.SuspendLayout();
+                try
+                {
+                    details.Controls.Clear();
+                    details.Padding = new Padding(12);
+                    details.AutoScroll = false;
+                    if (module == "type-effect")
+                    {
+                        details.Controls.Add(MakeTypeEffectMatrix());
+                    }
+                    else if (module == "natures")
+                    {
+                        details.Controls.Add(MakeNatureEffectMatrix());
+                    }
+                    EnableDoubleBufferingRecursive(details);
+                }
+                finally
+                {
+                    details.ResumeLayout(true);
+                }
+            });
         }
 
         private string CurrentModuleTitle()
@@ -886,6 +1010,25 @@ namespace PodexDesktop
             if (abilityFilterTargetId > 0 && (ability.target == null || ability.target.id != abilityFilterTargetId)) return false;
             if (abilityFilterEffectOnId > 0 && (ability.effectOn == null || ability.effectOn.id != abilityFilterEffectOnId)) return false;
             return true;
+        }
+
+        private bool ItemMatchesDetailFilters(ItemEntry item)
+        {
+            if (item == null) return false;
+            ItemFlags flags = item.flags;
+            if (!ItemBooleanFilterMatches(flags != null && flags.inBattle, itemFilterInBattle)) return false;
+            if (!ItemBooleanFilterMatches(flags != null && flags.outBattle, itemFilterOutBattle)) return false;
+            if (!ItemBooleanFilterMatches(flags != null && flags.oneTime, itemFilterOneTime)) return false;
+            if (!ItemBooleanFilterMatches(flags != null && flags.heldEffect, itemFilterHeldEffect)) return false;
+            if (!ItemBooleanFilterMatches(flags != null && flags.evolveRelated, itemFilterEvolveRelated)) return false;
+            if (itemFilterBagId > 0 && ObjectInt(item.bagId, -1) != itemFilterBagId) return false;
+            return true;
+        }
+
+        private static bool ItemBooleanFilterMatches(bool value, int filter)
+        {
+            if (filter < 0) return true;
+            return value == (filter == 1);
         }
 
         private bool MoveMatchesDetailFilters(MoveEntry move)
@@ -1031,7 +1174,7 @@ namespace PodexDesktop
         private void AddPokemonRow(PokemonEntry p)
         {
             var item = new ListViewItem(p.nationalDex.ToString());
-            item.ImageKey = p.legacyId.ToString();
+            item.SubItems.Add("");
             item.SubItems.Add(LocalName(p.names));
             AddTypeSubItem(item, TypeAt(p.types, 0));
             AddTypeSubItem(item, TypeAt(p.types, 1));
@@ -1076,8 +1219,6 @@ namespace PodexDesktop
             var item = new ListViewItem(i.id.ToString());
             item.ImageKey = i.id.ToString();
             item.SubItems.Add(LocalName(i.names));
-            item.SubItems.Add(EnglishName(i.names));
-            item.SubItems.Add(ValueOrDash(i.price));
             item.SubItems.Add(ValueOrDash(i.bagId));
             item.Tag = i;
             list.Items.Add(item);
@@ -1113,18 +1254,28 @@ namespace PodexDesktop
 
         private void ShowDetails(object tag)
         {
-            details.SuspendLayout();
-            details.Controls.Clear();
-            details.Padding = tag is MoveEntry ? new Padding(6) : new Padding(24);
-            details.AutoScroll = !(tag is PokemonEntry || tag is MoveEntry);
-            if (tag is PokemonEntry) ShowPokemon((PokemonEntry)tag);
-            else if (tag is MoveEntry) ShowMove((MoveEntry)tag);
-            else if (tag is AbilityEntry) ShowAbility((AbilityEntry)tag);
-            else if (tag is ItemEntry) ShowItem((ItemEntry)tag);
-            else if (tag is TypeRef) ShowTypeEffect((TypeRef)tag);
-            else if (tag is NatureEntry) ShowNature((NatureEntry)tag);
-            else ShowPlaceholder(tag == null ? "" : tag.ToString());
-            details.ResumeLayout();
+            RunWithRedrawSuspended(details, delegate
+            {
+                details.SuspendLayout();
+                try
+                {
+                    details.Controls.Clear();
+                    details.Padding = (tag is MoveEntry || tag is ItemEntry) ? new Padding(6) : new Padding(24);
+                    details.AutoScroll = !(tag is PokemonEntry || tag is MoveEntry || tag is ItemEntry);
+                    if (tag is PokemonEntry) ShowPokemon((PokemonEntry)tag);
+                    else if (tag is MoveEntry) ShowMove((MoveEntry)tag);
+                    else if (tag is AbilityEntry) ShowAbility((AbilityEntry)tag);
+                    else if (tag is ItemEntry) ShowItem((ItemEntry)tag);
+                    else if (tag is TypeRef) ShowTypeEffect((TypeRef)tag);
+                    else if (tag is NatureEntry) ShowNature((NatureEntry)tag);
+                    else ShowPlaceholder(tag == null ? "" : tag.ToString());
+                    EnableDoubleBufferingRecursive(details);
+                }
+                finally
+                {
+                    details.ResumeLayout(true);
+                }
+            });
         }
 
         private FlowLayoutPanel StartDetail(string heading, string subheading)
@@ -1761,7 +1912,7 @@ namespace PodexDesktop
                 ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
                 ColumnHeadersHeight = 28,
                 RowTemplate = { Height = 22 },
-                ScrollBars = ScrollBars.Vertical,
+                ScrollBars = ScrollBars.None,
                 ShowCellToolTips = true,
                 Margin = new Padding(0)
             };
@@ -2572,7 +2723,7 @@ namespace PodexDesktop
                 BackColor = Color.FromArgb(255, 250, 237)
             };
             middle.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            middle.RowStyles.Add(new RowStyle(SizeType.Absolute, 118));
+            middle.RowStyles.Add(new RowStyle(SizeType.Absolute, 84));
             middle.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             middle.Controls.Add(MakeMoveDescriptionBox(move), 0, 0);
             middle.Controls.Add(MakeMoveFilterBox(move), 0, 1);
@@ -2625,10 +2776,10 @@ namespace PodexDesktop
             var stack = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                AutoScroll = true,
+                AutoScroll = false,
                 FlowDirection = FlowDirection.TopDown,
                 WrapContents = false,
-                Padding = new Padding(4, 2, 4, 4),
+                Padding = new Padding(4, 1, 4, 2),
                 BackColor = Color.FromArgb(255, 250, 237)
             };
             stack.Controls.Add(MakeMoveFilterSearchPanel());
@@ -2642,7 +2793,7 @@ namespace PodexDesktop
             stack.Controls.Add(MakeMoveFilterSection("效果对象", MakeMoveRangeFilterButtons()));
             stack.Resize += delegate
             {
-                int width = Math.Max(240, stack.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 8);
+                int width = Math.Max(240, stack.ClientSize.Width - 8);
                 foreach (Control control in stack.Controls) control.Width = width;
             };
             group.Controls.Add(stack);
@@ -2928,7 +3079,7 @@ namespace PodexDesktop
         {
             var panel = new TableLayoutPanel
             {
-                Height = 28,
+                Height = 26,
                 ColumnCount = 5,
                 RowCount = 1,
                 Margin = new Padding(0, 0, 0, 1),
@@ -2947,7 +3098,7 @@ namespace PodexDesktop
         {
             var panel = new TableLayoutPanel
             {
-                Height = MoveFilterSectionHeight(title),
+                Height = MoveFilterSectionHeight(content),
                 ColumnCount = 1,
                 RowCount = 2,
                 Margin = new Padding(0, 3, 0, 3),
@@ -2975,6 +3126,14 @@ namespace PodexDesktop
             if (title == "属性") return 142;
             if (title == "效果对象") return 96;
             return 50;
+        }
+
+        private static int MoveFilterSectionHeight(Control content)
+        {
+            if (content is TableLayoutPanel) return 76;
+            var wrap = content as FlowLayoutPanel;
+            if (wrap != null && wrap.Controls.Count > 4) return 120;
+            return 46;
         }
 
         private FlowLayoutPanel MakeMoveTypeFilterButtons()
@@ -3538,19 +3697,271 @@ namespace PodexDesktop
 
         private void ShowItem(ItemEntry i)
         {
-            var stack = StartDetail(LocalName(i.names), "#" + i.id + " / " + EnglishName(i.names));
-            stack.Controls.Add(MakeImageDescriptionPanel(ItemImagePath(i.id, true), LocalName(i.descriptions), 96, 96));
-            stack.Controls.Add(MakeFacts(new[]
+            details.Controls.Add(MakeItemDetailPanel(i));
+        }
+
+        private Control MakeItemDetailPanel(ItemEntry item)
+        {
+            var layout = new TableLayoutPanel
             {
-                Tuple.Create("价格", ValueOrDash(i.price)),
-                Tuple.Create("背包ID", ValueOrDash(i.bagId)),
-                Tuple.Create("战斗中可用", YesNo(i.flags != null && i.flags.inBattle)),
-                Tuple.Create("战斗外可用", YesNo(i.flags != null && i.flags.outBattle)),
-                Tuple.Create("一次性", YesNo(i.flags != null && i.flags.oneTime)),
-                Tuple.Create("携带有效", YesNo(i.flags != null && i.flags.heldEffect)),
-                Tuple.Create("进化相关", YesNo(i.flags != null && i.flags.evolveRelated)),
-                Tuple.Create("出现世代", ItemGenerationText(i))
-            }));
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 2,
+                Margin = new Padding(0),
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 84));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            layout.Controls.Add(MakeItemSummaryPanel(item), 0, 0);
+            layout.Controls.Add(MakeItemFilterBox(item), 0, 1);
+            return layout;
+        }
+
+        private Control MakeItemSummaryPanel(ItemEntry item)
+        {
+            var panel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1,
+                Margin = new Padding(0, 0, 0, 4),
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+            var picture = new PictureBox
+            {
+                Dock = DockStyle.Fill,
+                BorderStyle = BorderStyle.FixedSingle,
+                SizeMode = PictureBoxSizeMode.CenterImage,
+                BackColor = Color.White,
+                Margin = new Padding(0, 0, 6, 0)
+            };
+            string imagePath = item == null ? "" : ItemImagePath(item.id, true);
+            if (!string.IsNullOrWhiteSpace(imagePath) && File.Exists(imagePath))
+            {
+                picture.Image = Image.FromFile(imagePath);
+            }
+
+            var descriptionGroup = new GroupBox
+            {
+                Text = "描述",
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0),
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            var description = new TextBox
+            {
+                Dock = DockStyle.Fill,
+                Multiline = true,
+                ReadOnly = true,
+                BorderStyle = BorderStyle.None,
+                ScrollBars = ScrollBars.None,
+                BackColor = Color.FromArgb(255, 250, 237),
+                ForeColor = Color.Blue,
+                Font = new Font("Segoe UI", 9f),
+                Text = item == null ? "" : LocalName(item.descriptions),
+                Margin = new Padding(4)
+            };
+            descriptionGroup.Controls.Add(description);
+
+            panel.Controls.Add(picture, 0, 0);
+            panel.Controls.Add(descriptionGroup, 1, 0);
+            return panel;
+        }
+
+        private Control MakeItemFilterBox(ItemEntry item)
+        {
+            var group = new GroupBox
+            {
+                Text = "筛选",
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0),
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+
+            var panel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                Height = 202,
+                ColumnCount = 4,
+                RowCount = 7,
+                Padding = new Padding(4, 2, 4, 4),
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 104));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
+            for (int row = 0; row < 6; row++) panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+            panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+
+            AddItemFilterSearchRow(panel, 0);
+            AddItemFilterBooleanRow(panel, 1, "战斗中可用", item != null && item.flags != null && item.flags.inBattle, itemFilterInBattle, delegate(int value) { itemFilterInBattle = value; });
+            AddItemFilterBooleanRow(panel, 2, "战斗外可用", item != null && item.flags != null && item.flags.outBattle, itemFilterOutBattle, delegate(int value) { itemFilterOutBattle = value; });
+            AddItemFilterBooleanRow(panel, 3, "一次性道具", item != null && item.flags != null && item.flags.oneTime, itemFilterOneTime, delegate(int value) { itemFilterOneTime = value; });
+            AddItemFilterBooleanRow(panel, 4, "携带有效", item != null && item.flags != null && item.flags.heldEffect, itemFilterHeldEffect, delegate(int value) { itemFilterHeldEffect = value; });
+            AddItemFilterBooleanRow(panel, 5, "进化相关", item != null && item.flags != null && item.flags.evolveRelated, itemFilterEvolveRelated, delegate(int value) { itemFilterEvolveRelated = value; });
+            AddItemBagFilterRow(panel, 6, item);
+
+            group.Controls.Add(panel);
+            return group;
+        }
+
+        private void AddItemFilterSearchRow(TableLayoutPanel panel, int row)
+        {
+            panel.Controls.Add(new Label
+            {
+                Text = "⌕",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleCenter,
+                ForeColor = Color.FromArgb(40, 79, 145),
+                Font = new Font("Segoe UI", 15f, FontStyle.Bold),
+                Margin = new Padding(0)
+            }, 0, row);
+            var search = new TextBox
+            {
+                Dock = DockStyle.Fill,
+                BorderStyle = BorderStyle.FixedSingle,
+                Text = itemFilterSearchText,
+                Margin = new Padding(0, 2, 4, 2)
+            };
+            search.TextChanged += delegate
+            {
+                itemFilterSearchText = search.Text;
+                ApplyFilters();
+            };
+            panel.Controls.Add(search, 1, row);
+            panel.SetColumnSpan(search, 2);
+            panel.Controls.Add(MakeItemFilterToggleButton(null), 3, row);
+        }
+
+        private void AddItemFilterBooleanRow(TableLayoutPanel panel, int row, string label, bool preferredValue, int selectedValue, Action<int> setFilter)
+        {
+            var check = new CheckBox { Dock = DockStyle.Fill, Checked = selectedValue >= 0, Margin = new Padding(0, 6, 0, 0) };
+            panel.Controls.Add(check, 0, row);
+            panel.Controls.Add(new Label
+            {
+                Text = label,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                ForeColor = Color.FromArgb(23, 32, 27),
+                Font = new Font("Segoe UI", 9f),
+                Margin = new Padding(0)
+            }, 1, row);
+
+            var combo = new ComboBox
+            {
+                Dock = DockStyle.Fill,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Enabled = selectedValue >= 0,
+                Margin = new Padding(0, 3, 4, 3)
+            };
+            combo.Items.Add(new FilterOption("1", "是"));
+            combo.Items.Add(new FilterOption("0", "否"));
+            combo.SelectedIndex = selectedValue >= 0 ? (selectedValue == 1 ? 0 : 1) : (preferredValue ? 0 : 1);
+            panel.Controls.Add(combo, 2, row);
+
+            Button toggle = MakeItemFilterToggleButton(check);
+            panel.Controls.Add(toggle, 3, row);
+
+            Action apply = delegate
+            {
+                combo.Enabled = check.Checked;
+                toggle.Text = check.Checked ? "-" : "+";
+                var option = combo.SelectedItem as FilterOption;
+                int value = option != null && option.Value == "1" ? 1 : 0;
+                setFilter(check.Checked ? value : -1);
+                ApplyFilters();
+            };
+
+            check.CheckedChanged += delegate { apply(); };
+            combo.SelectedIndexChanged += delegate { if (check.Checked) apply(); };
+            toggle.Click += delegate { check.Checked = !check.Checked; };
+        }
+
+        private void AddItemBagFilterRow(TableLayoutPanel panel, int row, ItemEntry item)
+        {
+            var label = new Label
+            {
+                Text = "背包",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                ForeColor = Color.FromArgb(23, 32, 27),
+                Font = new Font("Segoe UI", 9f),
+                Margin = new Padding(24, 0, 0, 0)
+            };
+            panel.Controls.Add(label, 0, row);
+            panel.SetColumnSpan(label, 2);
+
+            var buttons = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                AutoScroll = false,
+                Padding = new Padding(0),
+                Margin = new Padding(0, 2, 0, 0),
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            foreach (int bagId in ItemBagIds())
+            {
+                var button = MakeItemBagButton(bagId, itemFilterBagId == bagId);
+                button.Click += delegate
+                {
+                    itemFilterBagId = itemFilterBagId == bagId ? -1 : bagId;
+                    ApplyFilters();
+                };
+                buttons.Controls.Add(button);
+            }
+            panel.Controls.Add(buttons, 2, row);
+
+            var clear = new Button
+            {
+                Text = "×",
+                Dock = DockStyle.Fill,
+                Enabled = itemFilterBagId > 0,
+                Margin = new Padding(1, 3, 0, 3)
+            };
+            clear.Click += delegate
+            {
+                itemFilterBagId = -1;
+                ApplyFilters();
+            };
+            panel.Controls.Add(clear, 3, row);
+        }
+
+        private Button MakeItemBagButton(int bagId, bool selected)
+        {
+            var button = new Button
+            {
+                Width = 28,
+                Height = 26,
+                Margin = new Padding(1, 0, 2, 0),
+                BackColor = Color.FromArgb(240, 240, 240),
+                FlatStyle = FlatStyle.Flat,
+                Tag = bagId
+            };
+            button.FlatAppearance.BorderColor = selected ? Color.FromArgb(0, 75, 180) : Color.FromArgb(150, 150, 150);
+            button.FlatAppearance.BorderSize = selected ? 2 : 1;
+            Image image = LoadCellImage(ItemBagImagePath(bagId));
+            if (image != null) button.Image = image;
+            button.ImageAlign = ContentAlignment.MiddleCenter;
+            abilityToolTip.SetToolTip(button, ItemBagName(bagId));
+            return button;
+        }
+
+        private static Button MakeItemFilterToggleButton(CheckBox check)
+        {
+            return new Button
+            {
+                Text = check != null && check.Checked ? "-" : "+",
+                Dock = DockStyle.Fill,
+                Enabled = check != null,
+                Margin = new Padding(1, 3, 0, 3)
+            };
         }
 
         private void ShowTypeEffect(TypeRef attackType)
@@ -4293,14 +4704,32 @@ namespace PodexDesktop
             PokemonEntry target = FindPokemon(legacyId);
             if (target == null) return;
 
-            ListViewItem indexedItem;
+            ListViewItem indexedItem = null;
             if (module.StartsWith("pokemon") && pokemonListItemsByLegacyId.TryGetValue(legacyId, out indexedItem))
             {
                 SelectPokemonListItem(indexedItem, target);
                 return;
             }
 
-            SelectModule("pokemon");
+            bool selectedAfterModuleChange = false;
+            RunWithRedrawSuspended(this, delegate
+            {
+                suppressAutoSelectFirstItem = true;
+                try
+                {
+                    SelectModule("pokemon");
+                }
+                finally
+                {
+                    suppressAutoSelectFirstItem = false;
+                }
+                if (pokemonListItemsByLegacyId.TryGetValue(legacyId, out indexedItem))
+                {
+                    SelectPokemonListItem(indexedItem, target);
+                    selectedAfterModuleChange = true;
+                }
+            });
+            if (selectedAfterModuleChange) return;
             if (pokemonListItemsByLegacyId.TryGetValue(legacyId, out indexedItem))
             {
                 SelectPokemonListItem(indexedItem, target);
@@ -4315,9 +4744,30 @@ namespace PodexDesktop
             MoveEntry target;
             if (!movesById.TryGetValue(moveId, out target)) return;
 
-            ResetMoveModuleFilters();
-            SelectModule("moves");
+            bool selectedAfterModuleChange = false;
+            RunWithRedrawSuspended(this, delegate
+            {
+                ResetMoveModuleFilters();
+                suppressAutoSelectFirstItem = true;
+                try
+                {
+                    SelectModule("moves");
+                }
+                finally
+                {
+                    suppressAutoSelectFirstItem = false;
+                }
 
+                foreach (ListViewItem item in list.Items)
+                {
+                    var move = item.Tag as MoveEntry;
+                    if (move == null || move.id != moveId) continue;
+                    SelectListItem(item, target);
+                    selectedAfterModuleChange = true;
+                    return;
+                }
+            });
+            if (selectedAfterModuleChange) return;
             foreach (ListViewItem item in list.Items)
             {
                 var move = item.Tag as MoveEntry;
@@ -4350,15 +4800,18 @@ namespace PodexDesktop
         private void SelectListItem(ListViewItem targetItem, object target)
         {
             suppressListSelectionChanged = true;
-            list.BeginUpdate();
-            foreach (ListViewItem item in list.Items)
+            RunWithRedrawSuspended(list, delegate
             {
-                item.Selected = false;
-            }
-            targetItem.Selected = true;
-            targetItem.Focused = true;
-            targetItem.EnsureVisible();
-            list.EndUpdate();
+                list.BeginUpdate();
+                foreach (ListViewItem item in list.Items)
+                {
+                    item.Selected = false;
+                }
+                targetItem.Selected = true;
+                targetItem.Focused = true;
+                targetItem.EnsureVisible();
+                list.EndUpdate();
+            });
             suppressListSelectionChanged = false;
             list.Select();
             ShowDetails(target);
@@ -4380,6 +4833,47 @@ namespace PodexDesktop
         {
             if (string.IsNullOrWhiteSpace(imageRoot)) return "";
             return Path.Combine(imageRoot, "items", big ? "big" : "small", itemId + ".png");
+        }
+
+        private string ItemBagImagePath(object bagId)
+        {
+            int representativeId = ItemBagRepresentativeItemId(ObjectInt(bagId, -1));
+            return representativeId <= 0 ? "" : ItemImagePath(representativeId, false);
+        }
+
+        private static int[] ItemBagIds()
+        {
+            return new[] { 1, 2, 3, 5, 6, 7, 8 };
+        }
+
+        private static int ItemBagRepresentativeItemId(int bagId)
+        {
+            switch (bagId)
+            {
+                case 1: return 76;  // 道具
+                case 2: return 17;  // 回复
+                case 3: return 4;   // 精灵球
+                case 5: return 149; // 树果
+                case 6: return 137; // 邮件
+                case 7: return 57;  // 战斗道具
+                case 8: return 438; // 重要物品
+                default: return -1;
+            }
+        }
+
+        private static string ItemBagName(int bagId)
+        {
+            switch (bagId)
+            {
+                case 1: return "道具";
+                case 2: return "回复";
+                case 3: return "精灵球";
+                case 5: return "树果";
+                case 6: return "邮件";
+                case 7: return "战斗道具";
+                case 8: return "重要物品";
+                default: return "背包 " + bagId;
+            }
         }
 
         private string TypeImagePath(int typeId)
@@ -4799,6 +5293,13 @@ namespace PodexDesktop
             return value == null ? "--" : value.ToString();
         }
 
+        private static int ObjectInt(object value, int fallback)
+        {
+            if (value == null) return fallback;
+            int number;
+            return int.TryParse(value.ToString(), out number) ? number : fallback;
+        }
+
         private static string YesNo(bool value)
         {
             return value ? "是" : "否";
@@ -4887,6 +5388,78 @@ namespace PodexDesktop
                 case 18: return Color.FromArgb(180, 92, 134);
                 default: return Color.FromArgb(125, 120, 101);
             }
+        }
+
+        private static void EnableDoubleBufferingRecursive(Control control)
+        {
+            if (control == null || control.IsDisposed) return;
+            EnableDoubleBuffering(control);
+            foreach (Control child in control.Controls)
+            {
+                EnableDoubleBufferingRecursive(child);
+            }
+        }
+
+        private static void EnableDoubleBuffering(Control control)
+        {
+            if (control == null || DoubleBufferedProperty == null) return;
+            try
+            {
+                DoubleBufferedProperty.SetValue(control, true, null);
+            }
+            catch
+            {
+                // Some native controls reject the protected property; ignore and let their own buffering apply.
+            }
+        }
+
+        private static void RunWithRedrawSuspended(Control control, Action action)
+        {
+            if (action == null) return;
+            bool canSuspend = control != null && !control.IsDisposed && control.IsHandleCreated;
+            if (canSuspend)
+            {
+                int depth;
+                RedrawSuspendDepth.TryGetValue(control.Handle, out depth);
+                if (depth == 0)
+                {
+                    NativeMethods.SendMessage(control.Handle, NativeMethods.WM_SETREDRAW, IntPtr.Zero, IntPtr.Zero);
+                }
+                RedrawSuspendDepth[control.Handle] = depth + 1;
+            }
+
+            try
+            {
+                action();
+            }
+            finally
+            {
+                if (canSuspend && !control.IsDisposed)
+                {
+                    int depth;
+                    RedrawSuspendDepth.TryGetValue(control.Handle, out depth);
+                    depth--;
+                    if (depth <= 0)
+                    {
+                        RedrawSuspendDepth.Remove(control.Handle);
+                        NativeMethods.SendMessage(control.Handle, NativeMethods.WM_SETREDRAW, new IntPtr(1), IntPtr.Zero);
+                        control.Invalidate(true);
+                        control.Update();
+                    }
+                    else
+                    {
+                        RedrawSuspendDepth[control.Handle] = depth;
+                    }
+                }
+            }
+        }
+
+        private static class NativeMethods
+        {
+            internal const int WM_SETREDRAW = 0x000B;
+
+            [DllImport("user32.dll")]
+            internal static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
         }
     }
 
