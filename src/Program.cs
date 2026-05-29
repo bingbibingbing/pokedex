@@ -503,11 +503,8 @@ namespace PodexDesktop
             {
                 list.SmallImageList = null;
                 titleLabel.Text = "特性";
-                list.Columns.Add("#", 64);
-                list.Columns.Add("名字", 150);
-                list.Columns.Add("English", 150);
-                list.Columns.Add("触发", 88);
-                list.Columns.Add("对象", 88);
+                list.Columns.Add("#", 56);
+                list.Columns.Add("名字", 138);
             }
             else if (module == "items")
             {
@@ -786,9 +783,6 @@ namespace PodexDesktop
         {
             var item = new ListViewItem(a.id.ToString());
             item.SubItems.Add(LocalName(a.names));
-            item.SubItems.Add(EnglishName(a.names));
-            item.SubItems.Add(a.trigger == null ? "" : LocalName(a.trigger.names));
-            item.SubItems.Add(a.target == null ? "" : LocalName(a.target.names));
             item.Tag = a;
             list.Items.Add(item);
         }
@@ -2237,15 +2231,256 @@ namespace PodexDesktop
 
         private void ShowAbility(AbilityEntry a)
         {
-            var stack = StartDetail(LocalName(a.names), "#" + a.id + " / " + EnglishName(a.names));
-            stack.Controls.Add(MakeFacts(new[]
+            details.Controls.Add(MakeAbilityDetailPanel(a));
+        }
+
+        private Control MakeAbilityDetailPanel(AbilityEntry ability)
+        {
+            var layout = new TableLayoutPanel
             {
-                Tuple.Create("世代", "第" + a.generation + "世代"),
-                Tuple.Create("发动时间", a.trigger == null ? "--" : LocalName(a.trigger.names)),
-                Tuple.Create("效果对象", a.target == null ? "--" : LocalName(a.target.names)),
-                Tuple.Create("特性效果", a.effectOn == null ? "--" : LocalName(a.effectOn.names))
-            }));
-            stack.Controls.Add(MakeBodyLabel(LocalName(a.descriptions)));
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 2,
+                BackColor = Color.FromArgb(255, 250, 237),
+                Margin = new Padding(0)
+            };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 146));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+            var top = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1,
+                Margin = new Padding(0, 0, 0, 4),
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 42));
+            top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 58));
+            top.Controls.Add(MakeAbilityDescriptionBox(ability), 0, 0);
+            top.Controls.Add(MakeAbilityFilterBox(ability), 1, 0);
+
+            var pokemonGrid = MakeAbilityPokemonGrid();
+            FillAbilityPokemonGrid(pokemonGrid, ability);
+
+            layout.Controls.Add(top, 0, 0);
+            layout.Controls.Add(pokemonGrid, 0, 1);
+            return layout;
+        }
+
+        private Control MakeAbilityDescriptionBox(AbilityEntry ability)
+        {
+            var group = new GroupBox
+            {
+                Text = "描述",
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0, 0, 5, 0),
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            var text = new TextBox
+            {
+                Dock = DockStyle.Fill,
+                Multiline = true,
+                ReadOnly = true,
+                BorderStyle = BorderStyle.None,
+                ScrollBars = ScrollBars.Vertical,
+                BackColor = Color.FromArgb(255, 250, 237),
+                ForeColor = Color.Blue,
+                Font = new Font("Segoe UI", 9f),
+                Text = LocalName(ability.descriptions),
+                Margin = new Padding(4)
+            };
+            group.Controls.Add(text);
+            return group;
+        }
+
+        private Control MakeAbilityFilterBox(AbilityEntry ability)
+        {
+            var group = new GroupBox
+            {
+                Text = "筛选",
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0),
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+
+            var panel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 4,
+                RowCount = 5,
+                Padding = new Padding(4, 2, 4, 4),
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 86));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
+            for (int i = 0; i < 5; i++) panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+
+            AddAbilityFilterRow(panel, 0, "", "", true);
+            AddAbilityFilterRow(panel, 1, "世代", "第" + ability.generation + "世代", false);
+            AddAbilityFilterRow(panel, 2, "发动时间", ability.trigger == null ? "--" : LocalName(ability.trigger.names), false);
+            AddAbilityFilterRow(panel, 3, "效果对象", ability.target == null ? "--" : LocalName(ability.target.names), false);
+            AddAbilityFilterRow(panel, 4, "特性效果", ability.effectOn == null ? "--" : LocalName(ability.effectOn.names), false);
+
+            group.Controls.Add(panel);
+            return group;
+        }
+
+        private static void AddAbilityFilterRow(TableLayoutPanel panel, int row, string label, string value, bool searchRow)
+        {
+            if (searchRow)
+            {
+                panel.Controls.Add(new Label
+                {
+                    Text = "⌕",
+                    Dock = DockStyle.Fill,
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    ForeColor = Color.FromArgb(40, 79, 145),
+                    Font = new Font("Segoe UI", 15f, FontStyle.Bold),
+                    Margin = new Padding(0)
+                }, 0, row);
+                panel.Controls.Add(new TextBox
+                {
+                    Dock = DockStyle.Fill,
+                    BorderStyle = BorderStyle.FixedSingle,
+                    Margin = new Padding(0, 2, 3, 2)
+                }, 1, row);
+                panel.SetColumnSpan(panel.GetControlFromPosition(1, row), 2);
+                panel.Controls.Add(MakeAbilityFilterPlusButton(), 3, row);
+                return;
+            }
+
+            panel.Controls.Add(new CheckBox { Dock = DockStyle.Fill, Margin = new Padding(0, 4, 0, 0) }, 0, row);
+            panel.Controls.Add(new Label
+            {
+                Text = label,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                ForeColor = Color.FromArgb(23, 32, 27),
+                Font = new Font("Segoe UI", 9f),
+                Margin = new Padding(0)
+            }, 1, row);
+            panel.Controls.Add(new ComboBox
+            {
+                Dock = DockStyle.Fill,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Enabled = false,
+                Text = value,
+                Margin = new Padding(0, 1, 3, 1)
+            }, 2, row);
+            panel.Controls.Add(MakeAbilityFilterPlusButton(), 3, row);
+        }
+
+        private static Button MakeAbilityFilterPlusButton()
+        {
+            return new Button
+            {
+                Text = "+",
+                Dock = DockStyle.Fill,
+                Enabled = false,
+                Margin = new Padding(1, 2, 0, 2)
+            };
+        }
+
+        private DataGridView MakeAbilityPokemonGrid()
+        {
+            var grid = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                ReadOnly = true,
+                AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false,
+                AllowUserToResizeRows = false,
+                RowHeadersVisible = false,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                MultiSelect = false,
+                BackgroundColor = Color.FromArgb(255, 250, 237),
+                BorderStyle = BorderStyle.FixedSingle,
+                ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
+                ColumnHeadersHeight = 24,
+                RowTemplate = { Height = 22 },
+                ScrollBars = ScrollBars.Vertical
+            };
+            grid.Columns.Add(MakeTextColumn("number", "#", 44));
+            grid.Columns.Add(MakeImageColumn("icon", "", 28));
+            grid.Columns.Add(MakeTextColumn("name", "名字", 104));
+            grid.Columns.Add(MakeTextColumn("type1", "属性", 54));
+            grid.Columns.Add(MakeTextColumn("type2", "属性", 54));
+            grid.Columns.Add(MakeTextColumn("ability1", "特性 1", 78));
+            grid.Columns.Add(MakeTextColumn("ability2", "特性 2", 78));
+            grid.Columns.Add(MakeTextColumn("hidden", "隐藏特性", 88));
+            grid.Columns["name"].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+            grid.Columns["name"].MinimumWidth = 88;
+            foreach (DataGridViewColumn column in grid.Columns)
+            {
+                column.SortMode = DataGridViewColumnSortMode.NotSortable;
+            }
+            grid.CellDoubleClick += delegate(object sender, DataGridViewCellEventArgs e)
+            {
+                if (e.RowIndex >= 0 && e.RowIndex < grid.Rows.Count && grid.Rows[e.RowIndex].Tag is int)
+                {
+                    NavigateToPokemon((int)grid.Rows[e.RowIndex].Tag);
+                }
+            };
+            return grid;
+        }
+
+        private void FillAbilityPokemonGrid(DataGridView grid, AbilityEntry ability)
+        {
+            grid.Rows.Clear();
+            foreach (var pokemon in root.pokemon.Where(p => PokemonHasAbility(p, ability.id)).OrderBy(p => p.nationalDex).ThenBy(p => p.formId))
+            {
+                int rowIndex = grid.Rows.Add(
+                    pokemon.nationalDex.ToString(),
+                    LoadPokemonSmallCellImage(pokemon.legacyId),
+                    LocalName(pokemon.names),
+                    TypeNameAt(pokemon.types, 0),
+                    TypeNameAt(pokemon.types, 1),
+                    AbilitySlotText(pokemon, ability.id, 1),
+                    AbilitySlotText(pokemon, ability.id, 2),
+                    AbilitySlotText(pokemon, ability.id, 3)
+                );
+                grid.Rows[rowIndex].Tag = pokemon.legacyId;
+                StyleAbilityPokemonGridRow(grid.Rows[rowIndex], pokemon);
+            }
+        }
+
+        private static bool PokemonHasAbility(PokemonEntry pokemon, int abilityId)
+        {
+            if (pokemon.abilities == null) return false;
+            return (pokemon.abilities.primary != null && pokemon.abilities.primary.id == abilityId) ||
+                (pokemon.abilities.secondary != null && pokemon.abilities.secondary.id == abilityId) ||
+                (pokemon.abilities.hidden != null && pokemon.abilities.hidden.id == abilityId);
+        }
+
+        private static string AbilitySlotText(PokemonEntry pokemon, int abilityId, int slot)
+        {
+            if (pokemon.abilities == null) return "--";
+            NamedRef ability = slot == 1 ? pokemon.abilities.primary : (slot == 2 ? pokemon.abilities.secondary : pokemon.abilities.hidden);
+            return ability != null && ability.id == abilityId ? LocalName(ability.names) : "--";
+        }
+
+        private static void StyleAbilityPokemonGridRow(DataGridViewRow row, PokemonEntry pokemon)
+        {
+            StyleAbilityTypeCell(row.Cells["type1"], TypeAt(pokemon.types, 0));
+            StyleAbilityTypeCell(row.Cells["type2"], TypeAt(pokemon.types, 1));
+        }
+
+        private static void StyleAbilityTypeCell(DataGridViewCell cell, TypeRef type)
+        {
+            if (type == null)
+            {
+                cell.Value = "";
+                return;
+            }
+            cell.Value = LocalName(type.names);
+            cell.Style.BackColor = TypeColor(type.id);
+            cell.Style.ForeColor = Color.White;
+            cell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            cell.Style.Font = new Font("Microsoft YaHei UI", 8f, FontStyle.Bold);
         }
 
         private void ShowItem(ItemEntry i)
