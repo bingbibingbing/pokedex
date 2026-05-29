@@ -53,6 +53,13 @@ namespace PodexDesktop
         private readonly Dictionary<int, List<EvolutionEntry>> evolutionsByFamilyId = new Dictionary<int, List<EvolutionEntry>>();
         private readonly Dictionary<int, List<LearnsetEntry>> learnsetsByPokemonId = new Dictionary<int, List<LearnsetEntry>>();
         private readonly Dictionary<int, List<LearnsetEntry>> learnsetsByMoveId = new Dictionary<int, List<LearnsetEntry>>();
+        private readonly List<int> moveFilterMoveIds = new List<int>();
+        private string moveFilterSearchText = "";
+        private int pokemonDetailTabIndex;
+        private int moveFilterCatalogSortColumn;
+        private bool moveFilterCatalogSortAscending = true;
+        private int moveFilterConditionSortColumn;
+        private bool moveFilterConditionSortAscending = true;
 
         public MainForm()
         {
@@ -588,7 +595,8 @@ namespace PodexDesktop
                 foreach (var p in root.pokemon.Where(p =>
                     Match(query, PokemonSearchText(p)) &&
                     (typeId.Length == 0 || (p.types != null && p.types.Any(t => t.id.ToString() == typeId))) &&
-                    (generation.Length == 0 || p.generation.ToString() == generation)))
+                    (generation.Length == 0 || p.generation.ToString() == generation) &&
+                    PokemonMatchesMoveFilter(p)))
                 {
                     AddPokemonRow(p);
                 }
@@ -667,6 +675,30 @@ namespace PodexDesktop
                     root.meta.counts.natures);
             }
             return "Loaded migrated legacy data.";
+        }
+
+        private bool PokemonMatchesMoveFilter(PokemonEntry p)
+        {
+            if (moveFilterMoveIds.Count == 0) return true;
+
+            List<LearnsetEntry> rows;
+            if (!learnsetsByPokemonId.TryGetValue(p.legacyId, out rows)) return false;
+
+            foreach (int moveId in moveFilterMoveIds)
+            {
+                bool found = false;
+                foreach (var row in rows)
+                {
+                    if (row.moveId == moveId)
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) return false;
+            }
+
+            return true;
         }
 
         private void AddPokemonRow(PokemonEntry p)
@@ -797,6 +829,14 @@ namespace PodexDesktop
             tabs.TabPages.Add(BuildPokemonInfoTab(p));
             tabs.TabPages.Add(BuildPokemonFilterTab(p));
             tabs.TabPages.Add(BuildPokemonMoveFilterTab(p));
+            if (pokemonDetailTabIndex >= 0 && pokemonDetailTabIndex < tabs.TabPages.Count)
+            {
+                tabs.SelectedIndex = pokemonDetailTabIndex;
+            }
+            tabs.SelectedIndexChanged += delegate
+            {
+                pokemonDetailTabIndex = tabs.SelectedIndex;
+            };
             details.Controls.Add(tabs);
         }
 
@@ -956,11 +996,355 @@ namespace PodexDesktop
         private TabPage BuildPokemonMoveFilterTab(PokemonEntry p)
         {
             var page = MakeTabPage("筛选（按招式）");
-            var stack = MakeTabStack();
-            page.Controls.Add(stack);
-            stack.Controls.Add(MakeBodyLabel("这里用于按招式反查学习方式。当前先保持原版入口，信息页下方已按版本显示招式列表。"));
-            stack.Controls.Add(MakeLegacyMoveSection(p, false));
+            page.Padding = new Padding(4);
+
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 6,
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 62));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 38));
+            page.Controls.Add(layout);
+
+            var catalogLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                ForeColor = Color.FromArgb(23, 32, 27),
+                Font = new Font("Segoe UI", 9f),
+                Margin = new Padding(2, 0, 0, 0)
+            };
+
+            var searchPanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1,
+                Margin = new Padding(0, 0, 0, 3),
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            searchPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 44));
+            searchPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            searchPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            searchPanel.Controls.Add(new Label
+            {
+                Text = "搜索",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleCenter,
+                ForeColor = Color.FromArgb(40, 79, 145),
+                Font = new Font("Segoe UI", 9f, FontStyle.Bold)
+            }, 0, 0);
+            var moveSearchBox = new TextBox
+            {
+                Dock = DockStyle.Fill,
+                BorderStyle = BorderStyle.FixedSingle,
+                Margin = new Padding(0, 2, 0, 2),
+                Text = moveFilterSearchText
+            };
+            searchPanel.Controls.Add(moveSearchBox, 1, 0);
+
+            var catalogGrid = MakeMoveFilterGrid();
+            var conditionGrid = MakeMoveFilterGrid();
+
+            var buttonBar = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Margin = new Padding(0, 5, 0, 5),
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            var addButton = MakeMoveFilterButton("▼", 38);
+            var removeButton = MakeMoveFilterButton("▲", 38);
+            var resetButton = MakeMoveFilterButton("重置", 98);
+            addButton.Margin = new Padding(56, 0, 22, 0);
+            removeButton.Margin = new Padding(0, 0, 70, 0);
+            resetButton.Margin = new Padding(0);
+            buttonBar.Controls.Add(addButton);
+            buttonBar.Controls.Add(removeButton);
+            buttonBar.Controls.Add(resetButton);
+
+            var conditionLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                ForeColor = Color.FromArgb(23, 32, 27),
+                Font = new Font("Segoe UI", 9f),
+                Margin = new Padding(2, 0, 0, 0)
+            };
+
+            layout.Controls.Add(catalogLabel, 0, 0);
+            layout.Controls.Add(searchPanel, 0, 1);
+            layout.Controls.Add(catalogGrid, 0, 2);
+            layout.Controls.Add(buttonBar, 0, 3);
+            layout.Controls.Add(conditionLabel, 0, 4);
+            layout.Controls.Add(conditionGrid, 0, 5);
+
+            Action refreshCatalog = delegate
+            {
+                FillMoveCatalogGrid(catalogGrid, moveSearchBox.Text, catalogLabel);
+            };
+            Action refreshConditions = delegate
+            {
+                FillMoveConditionGrid(conditionGrid, conditionLabel);
+            };
+            Action addSelectedMove = delegate
+            {
+                if (AddSelectedMoveFilter(catalogGrid))
+                {
+                    refreshConditions();
+                    ApplyFilters();
+                }
+            };
+            Action removeSelectedMove = delegate
+            {
+                if (RemoveSelectedMoveFilter(conditionGrid))
+                {
+                    refreshConditions();
+                    ApplyFilters();
+                }
+            };
+
+            moveSearchBox.TextChanged += delegate
+            {
+                moveFilterSearchText = moveSearchBox.Text;
+                refreshCatalog();
+            };
+            catalogGrid.CellDoubleClick += delegate(object sender, DataGridViewCellEventArgs e)
+            {
+                if (e.RowIndex >= 0) addSelectedMove();
+            };
+            conditionGrid.CellDoubleClick += delegate(object sender, DataGridViewCellEventArgs e)
+            {
+                if (e.RowIndex >= 0) removeSelectedMove();
+            };
+            addButton.Click += delegate { addSelectedMove(); };
+            removeButton.Click += delegate { removeSelectedMove(); };
+            resetButton.Click += delegate
+            {
+                if (moveFilterMoveIds.Count == 0) return;
+                moveFilterMoveIds.Clear();
+                refreshConditions();
+                ApplyFilters();
+            };
+            catalogGrid.ColumnHeaderMouseClick += delegate(object sender, DataGridViewCellMouseEventArgs e)
+            {
+                if (e.ColumnIndex < 0 || e.ColumnIndex >= catalogGrid.Columns.Count) return;
+                if (moveFilterCatalogSortColumn == e.ColumnIndex) moveFilterCatalogSortAscending = !moveFilterCatalogSortAscending;
+                else
+                {
+                    moveFilterCatalogSortColumn = e.ColumnIndex;
+                    moveFilterCatalogSortAscending = true;
+                }
+                refreshCatalog();
+            };
+            conditionGrid.ColumnHeaderMouseClick += delegate(object sender, DataGridViewCellMouseEventArgs e)
+            {
+                if (e.ColumnIndex < 0 || e.ColumnIndex >= conditionGrid.Columns.Count) return;
+                if (moveFilterConditionSortColumn == e.ColumnIndex) moveFilterConditionSortAscending = !moveFilterConditionSortAscending;
+                else
+                {
+                    moveFilterConditionSortColumn = e.ColumnIndex;
+                    moveFilterConditionSortAscending = true;
+                }
+                refreshConditions();
+            };
+
+            refreshCatalog();
+            refreshConditions();
             return page;
+        }
+
+        private Button MakeMoveFilterButton(string text, int width)
+        {
+            return new Button
+            {
+                Text = text,
+                Width = width,
+                Height = 27,
+                FlatStyle = FlatStyle.Standard,
+                BackColor = Color.FromArgb(226, 226, 226),
+                ForeColor = Color.FromArgb(23, 32, 27)
+            };
+        }
+
+        private DataGridView MakeMoveFilterGrid()
+        {
+            var grid = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                ReadOnly = true,
+                AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false,
+                AllowUserToResizeRows = false,
+                RowHeadersVisible = false,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                MultiSelect = false,
+                BackgroundColor = Color.FromArgb(255, 250, 237),
+                BorderStyle = BorderStyle.FixedSingle,
+                ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
+                ColumnHeadersHeight = 22,
+                RowTemplate = { Height = 22 },
+                ScrollBars = ScrollBars.Vertical,
+                Margin = new Padding(0)
+            };
+            grid.Columns.Add(MakeTextColumn("id", "#", 34));
+            grid.Columns.Add(MakeTextColumn("move", "名字", 112));
+            grid.Columns.Add(MakeImageColumn("type", "属性", 40));
+            grid.Columns.Add(MakeImageColumn("category", "分类", 40));
+            grid.Columns.Add(MakeTextColumn("power", "威", 34));
+            grid.Columns.Add(MakeTextColumn("accuracy", "命", 34));
+            grid.Columns.Add(MakeTextColumn("pp", "PP", 32));
+            grid.Columns.Add(MakeImageColumn("range", "范围", 40));
+            grid.Columns.Add(MakeTextColumn("priority", "优", 32));
+            foreach (DataGridViewColumn column in grid.Columns)
+            {
+                column.SortMode = DataGridViewColumnSortMode.Programmatic;
+            }
+            grid.Columns["move"].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+            grid.Columns["move"].MinimumWidth = 80;
+            grid.Resize += delegate { ResizeMoveFilterGridColumns(grid); };
+            return grid;
+        }
+
+        private void FillMoveCatalogGrid(DataGridView grid, string queryText, Label label)
+        {
+            string query = (queryText ?? "").Trim().ToLowerInvariant();
+            var moves = SortMoveEntries(root.moves.Where(m => Match(query, MoveSearchText(m))), moveFilterCatalogSortColumn, moveFilterCatalogSortAscending);
+            FillMoveFilterGridRows(grid, moves);
+            label.Text = string.Format("招式（ {0} / {1} ）", moves.Count, root.moves.Count);
+            UpdateMoveSortGlyph(grid, moveFilterCatalogSortColumn, moveFilterCatalogSortAscending);
+        }
+
+        private void FillMoveConditionGrid(DataGridView grid, Label label)
+        {
+            var moves = new List<MoveEntry>();
+            foreach (int moveId in moveFilterMoveIds)
+            {
+                MoveEntry move;
+                if (movesById.TryGetValue(moveId, out move))
+                {
+                    moves.Add(move);
+                }
+            }
+            moves = SortMoveEntries(moves, moveFilterConditionSortColumn, moveFilterConditionSortAscending);
+            FillMoveFilterGridRows(grid, moves);
+            label.Text = string.Format("搜索条件（ {0} ）", moveFilterMoveIds.Count);
+            UpdateMoveSortGlyph(grid, moveFilterConditionSortColumn, moveFilterConditionSortAscending);
+        }
+
+        private void FillMoveFilterGridRows(DataGridView grid, IEnumerable<MoveEntry> moves)
+        {
+            grid.Rows.Clear();
+            foreach (var move in moves)
+            {
+                int rowIndex = grid.Rows.Add(
+                    move.id.ToString(),
+                    LocalName(move.names),
+                    LoadCellImage(move.type == null ? "" : TypeImagePath(move.type.id)),
+                    LoadCellImage(move.category == null ? "" : MoveCategoryImagePath(move.category.id)),
+                    MoveValue(move.power),
+                    MoveValue(move.accuracy),
+                    MoveValue(move.pp),
+                    LoadCellImage(MoveRangeImagePath(move.rangeId)),
+                    MoveValue(move.priority)
+                );
+                grid.Rows[rowIndex].Tag = move.id;
+            }
+        }
+
+        private bool AddSelectedMoveFilter(DataGridView grid)
+        {
+            int moveId;
+            if (!TryGetSelectedMoveId(grid, out moveId) || moveFilterMoveIds.Contains(moveId)) return false;
+            moveFilterMoveIds.Add(moveId);
+            return true;
+        }
+
+        private bool RemoveSelectedMoveFilter(DataGridView grid)
+        {
+            int moveId;
+            if (!TryGetSelectedMoveId(grid, out moveId)) return false;
+            return moveFilterMoveIds.Remove(moveId);
+        }
+
+        private static bool TryGetSelectedMoveId(DataGridView grid, out int moveId)
+        {
+            moveId = -1;
+            if (grid.SelectedRows.Count > 0 && grid.SelectedRows[0].Tag is int)
+            {
+                moveId = (int)grid.SelectedRows[0].Tag;
+                return true;
+            }
+            if (grid.CurrentRow != null && grid.CurrentRow.Tag is int)
+            {
+                moveId = (int)grid.CurrentRow.Tag;
+                return true;
+            }
+            return false;
+        }
+
+        private static void ResizeMoveFilterGridColumns(DataGridView grid)
+        {
+            if (grid.Columns.Count < 9) return;
+            int fixedWidth =
+                grid.Columns["id"].Width +
+                grid.Columns["type"].Width +
+                grid.Columns["category"].Width +
+                grid.Columns["power"].Width +
+                grid.Columns["accuracy"].Width +
+                grid.Columns["pp"].Width +
+                grid.Columns["range"].Width +
+                grid.Columns["priority"].Width +
+                24;
+            grid.Columns["move"].Width = Math.Max(80, grid.ClientSize.Width - fixedWidth);
+        }
+
+        private static List<MoveEntry> SortMoveEntries(IEnumerable<MoveEntry> moves, int sortColumn, bool sortAscending)
+        {
+            var sorted = moves.ToList();
+            sorted.Sort(delegate(MoveEntry left, MoveEntry right)
+            {
+                int result = CompareMoveEntries(left, right, sortColumn);
+                if (result != 0) return sortAscending ? result : -result;
+                return left.id.CompareTo(right.id);
+            });
+            return sorted;
+        }
+
+        private static int CompareMoveEntries(MoveEntry left, MoveEntry right, int sortColumn)
+        {
+            switch (sortColumn)
+            {
+                case 0:
+                    return left.id.CompareTo(right.id);
+                case 1:
+                    return CompareSortText(LocalName(left.names), LocalName(right.names));
+                case 2:
+                    return CompareSortNumber(left.type == null ? null : (object)left.type.id, right.type == null ? null : (object)right.type.id);
+                case 3:
+                    return CompareSortText(left.category == null ? "" : LocalName(left.category.names), right.category == null ? "" : LocalName(right.category.names));
+                case 4:
+                    return CompareMoveValue(left.power, right.power);
+                case 5:
+                    return CompareMoveValue(left.accuracy, right.accuracy);
+                case 6:
+                    return CompareMoveValue(left.pp, right.pp);
+                case 7:
+                    return CompareSortNumber(left.rangeId, right.rangeId);
+                case 8:
+                    return CompareMoveValue(left.priority, right.priority);
+                default:
+                    return left.id.CompareTo(right.id);
+            }
         }
 
         private Control MakeAbilityBar(PokemonEntry p)
