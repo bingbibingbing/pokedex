@@ -49,3 +49,20 @@ The migrated data is kept in `data\pokemon.json`.
 The migrated sprites and UI icons are kept in `assets\images`.
 
 The desktop app is read-only. It does not modify the original legacy package.
+
+## Validate Data
+
+Run this before and after data expansion work:
+
+```powershell
+.\tools\validate-data.ps1
+```
+
+The report is written to:
+
+```text
+artifacts\data-validation-report.txt
+```
+
+The validator uses the same Windows/.NET Framework toolchain as the app build.
+It is a development tool only and is not required by end users.
