@@ -184,6 +184,12 @@ Pipeline:
 
 The desktop app remains portable; these import tools are development-only and are not shipped to users.
 
+Implementation status:
+
+- `tools/fetch-pokeapi-csv.ps1` can cache the required PokeAPI CSV files for local inspection.
+- `tools/import-data.ps1` builds and runs a preflight importer report.
+- The preflight report does not write `data/pokemon.json`; it only compares current data against source coverage and expansion candidates.
+
 ## Validation Checklist
 
 Before accepting expanded data:

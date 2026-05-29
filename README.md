@@ -66,3 +66,26 @@ artifacts\data-validation-report.txt
 
 The validator uses the same Windows/.NET Framework toolchain as the app build.
 It is a development tool only and is not required by end users.
+
+## Import Preflight
+
+Generate a report for future data expansion without modifying `data\pokemon.json`:
+
+```powershell
+.\tools\import-data.ps1
+```
+
+To inspect PokeAPI CSV source data first:
+
+```powershell
+.\tools\fetch-pokeapi-csv.ps1
+.\tools\import-data.ps1 -RequireSource
+```
+
+The report is written to:
+
+```text
+artifacts\import-data-report.txt
+```
+
+Downloaded CSV files are cached under `tools\import-data\source-cache` and are ignored by Git.
