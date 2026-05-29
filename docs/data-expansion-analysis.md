@@ -189,6 +189,7 @@ Implementation status:
 - `tools/fetch-pokeapi-csv.ps1` can cache the required PokeAPI CSV files for local inspection.
 - `tools/import-data.ps1` builds and runs a preflight importer report.
 - The preflight report does not write `data/pokemon.json`; it only compares current data against source coverage and expansion candidates.
+- The importer also writes `artifacts/import-id-map-preview.csv`, a reviewable source-to-local ID mapping preview.
 
 ## Validation Checklist
 

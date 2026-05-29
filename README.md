@@ -86,6 +86,7 @@ The report is written to:
 
 ```text
 artifacts\import-data-report.txt
+artifacts\import-id-map-preview.csv
 ```
 
 Downloaded CSV files are cached under `tools\import-data\source-cache` and are ignored by Git.

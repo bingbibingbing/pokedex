@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -70,6 +71,16 @@ namespace PodexTools
                         Directory.CreateDirectory(reportDirectory);
                     }
                     File.WriteAllText(options.ReportPath, text, Encoding.UTF8);
+                }
+
+                if (!string.IsNullOrWhiteSpace(options.MapPath) && report.MappingRows.Count > 0)
+                {
+                    string mapDirectory = Path.GetDirectoryName(Path.GetFullPath(options.MapPath));
+                    if (!string.IsNullOrWhiteSpace(mapDirectory))
+                    {
+                        Directory.CreateDirectory(mapDirectory);
+                    }
+                    File.WriteAllText(options.MapPath, MappingRow.ToCsv(report.MappingRows), Encoding.UTF8);
                 }
 
                 if (options.RequireSource && report.MissingSourceFiles.Count > 0) return 1;
@@ -187,9 +198,11 @@ namespace PodexTools
             {
                 CsvTable species = CsvTable.Load(Path.Combine(options.SourcePath, "pokemon_species.csv"));
                 CsvTable pokemon = CsvTable.Load(Path.Combine(options.SourcePath, "pokemon.csv"));
+                CsvTable pokemonForms = CsvTable.Load(Path.Combine(options.SourcePath, "pokemon_forms.csv"));
                 CsvTable moves = CsvTable.Load(Path.Combine(options.SourcePath, "moves.csv"));
                 CsvTable abilities = CsvTable.Load(Path.Combine(options.SourcePath, "abilities.csv"));
                 CsvTable items = CsvTable.Load(Path.Combine(options.SourcePath, "items.csv"));
+                CsvTable itemNames = CsvTable.Load(Path.Combine(options.SourcePath, "item_names.csv"));
                 CsvTable itemGameIndices = CsvTable.Load(Path.Combine(options.SourcePath, "item_game_indices.csv"));
                 CsvTable versionGroups = CsvTable.Load(Path.Combine(options.SourcePath, "version_groups.csv"));
                 CsvTable pokemonMoves = CsvTable.Load(Path.Combine(options.SourcePath, "pokemon_moves.csv"));
@@ -225,8 +238,177 @@ namespace PodexTools
                 report.Candidates.Add("Items available in generation > 7", CountDistinctRowsGreaterThan(itemGameIndices, "item_id", "generation_id", 7).ToString());
                 report.Candidates.Add("Version groups after generation 7", CountRowsGreaterThan(versionGroups, "generation_id", 7).ToString());
 
+                BuildMappingPreview(species, pokemon, pokemonForms, moves, abilities, items, itemNames, currentMaxDex, currentMaxMove, currentMaxAbility, currentMaxItem);
+
                 report.Notes.Add("This preflight only compares source coverage. It does not merge or write data yet.");
-                report.Notes.Add("Next importer step should build stable local ID mapping for Pokemon forms before writing any JSON.");
+                if (!string.IsNullOrWhiteSpace(options.MapPath))
+                {
+                    report.Notes.Add("Mapping preview is written to: " + Path.GetFullPath(options.MapPath));
+                }
+                report.Notes.Add("Pokemon forms from existing Gen 1-7 are marked for manual matching because legacy form IDs are not PokeAPI IDs.");
+            }
+
+            private void BuildMappingPreview(
+                CsvTable species,
+                CsvTable pokemon,
+                CsvTable pokemonForms,
+                CsvTable moves,
+                CsvTable abilities,
+                CsvTable items,
+                CsvTable itemNames,
+                int currentMaxDex,
+                int currentMaxMove,
+                int currentMaxAbility,
+                int currentMaxItem)
+            {
+                var existingBasePokemon = root.pokemon
+                    .Where(delegate(PokemonEntry p) { return p.legacyId == p.nationalDex && p.nationalDex > 0; })
+                    .GroupBy(delegate(PokemonEntry p) { return p.nationalDex; })
+                    .ToDictionary(delegate(IGrouping<int, PokemonEntry> group) { return group.Key; }, delegate(IGrouping<int, PokemonEntry> group) { return group.First(); });
+
+                foreach (Dictionary<string, string> row in species.Rows.OrderBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "id"); }))
+                {
+                    int sourceId = CsvInt(row, "id");
+                    int generation = CsvInt(row, "generation_id");
+                    PokemonEntry existing;
+                    if (existingBasePokemon.TryGetValue(sourceId, out existing))
+                    {
+                        AddMapping("pokemon_species", sourceId.ToString(), existing.legacyId.ToString(), "existing_base", "nationalDex matched existing base Pokemon", CsvValue(row, "identifier"));
+                    }
+                    else if (sourceId > currentMaxDex)
+                    {
+                        AddMapping("pokemon_species", sourceId.ToString(), sourceId.ToString(), "add_base", "new species; generation " + generation, CsvValue(row, "identifier"));
+                    }
+                    else
+                    {
+                        AddMapping("pokemon_species", sourceId.ToString(), "", "needs_review", "source species is within current dex range but no base local row matched", CsvValue(row, "identifier"));
+                    }
+                }
+
+                var formByPokemonId = pokemonForms.Rows
+                    .GroupBy(delegate(Dictionary<string, string> row) { return CsvInt(row, "pokemon_id"); })
+                    .ToDictionary(delegate(IGrouping<int, Dictionary<string, string>> group) { return group.Key; }, delegate(IGrouping<int, Dictionary<string, string>> group) { return group.First(); });
+
+                int nextFormLocalId = Math.Max(5000, Max(root.pokemon.Select(delegate(PokemonEntry p) { return p.legacyId; })) + 1);
+                foreach (Dictionary<string, string> row in pokemon.Rows.OrderBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "id"); }))
+                {
+                    int pokemonId = CsvInt(row, "id");
+                    int speciesId = CsvInt(row, "species_id");
+                    bool isDefault = CsvValue(row, "is_default") == "1";
+                    string identifier = CsvValue(row, "identifier");
+                    Dictionary<string, string> formRow;
+                    int introducedVersionGroupId = formByPokemonId.TryGetValue(pokemonId, out formRow) ? CsvInt(formRow, "introduced_in_version_group_id") : 0;
+
+                    if (speciesId > currentMaxDex)
+                    {
+                        if (isDefault)
+                        {
+                            AddMapping("pokemon_form", pokemonId.ToString(), speciesId.ToString(), "add_default_form", "new species default form; introduced version group " + introducedVersionGroupId, identifier);
+                        }
+                        else
+                        {
+                            AddMapping("pokemon_form", pokemonId.ToString(), nextFormLocalId.ToString(), "add_extra_form", "new species extra form; introduced version group " + introducedVersionGroupId, identifier);
+                            nextFormLocalId++;
+                        }
+                    }
+                    else if (isDefault)
+                    {
+                        AddMapping("pokemon_form", pokemonId.ToString(), speciesId.ToString(), "existing_default_form", "default form for existing species", identifier);
+                    }
+                    else
+                    {
+                        AddMapping("pokemon_form", pokemonId.ToString(), "", "manual_existing_form", "existing Gen 1-7 form requires legacy ID matching", identifier);
+                    }
+                }
+
+                foreach (Dictionary<string, string> row in moves.Rows.OrderBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "id"); }))
+                {
+                    int sourceId = CsvInt(row, "id");
+                    string localId = sourceId.ToString();
+                    if (root.moves.Any(delegate(MoveEntry move) { return move.id == sourceId; }))
+                    {
+                        AddMapping("move", sourceId.ToString(), localId, "existing", "move id already present", CsvValue(row, "identifier"));
+                    }
+                    else if (sourceId > currentMaxMove)
+                    {
+                        AddMapping("move", sourceId.ToString(), localId, "add", "new move id after current max", CsvValue(row, "identifier"));
+                    }
+                    else
+                    {
+                        AddMapping("move", sourceId.ToString(), "", "needs_review", "move id is inside current range but missing locally", CsvValue(row, "identifier"));
+                    }
+                }
+
+                foreach (Dictionary<string, string> row in abilities.Rows.OrderBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "id"); }))
+                {
+                    int sourceId = CsvInt(row, "id");
+                    string localId = sourceId.ToString();
+                    if (root.abilities.Any(delegate(AbilityEntry ability) { return ability.id == sourceId; }))
+                    {
+                        AddMapping("ability", sourceId.ToString(), localId, "existing", "ability id already present", CsvValue(row, "identifier"));
+                    }
+                    else if (sourceId > currentMaxAbility)
+                    {
+                        AddMapping("ability", sourceId.ToString(), localId, "add", "new ability id after current max", CsvValue(row, "identifier"));
+                    }
+                    else
+                    {
+                        AddMapping("ability", sourceId.ToString(), "", "needs_review", "ability id is inside current range but missing locally", CsvValue(row, "identifier"));
+                    }
+                }
+
+                Dictionary<int, string> sourceItemEnglishNames = BuildEnglishNameMap(itemNames, "item_id");
+                Dictionary<int, ItemEntry> currentItemsById = root.items
+                    .GroupBy(delegate(ItemEntry item) { return item.id; })
+                    .ToDictionary(delegate(IGrouping<int, ItemEntry> group) { return group.Key; }, delegate(IGrouping<int, ItemEntry> group) { return group.First(); });
+                Dictionary<string, ItemEntry> currentItemsByName = new Dictionary<string, ItemEntry>(StringComparer.OrdinalIgnoreCase);
+                foreach (ItemEntry item in root.items)
+                {
+                    string normalized = NormalizeName(LocalName(item.names));
+                    if (normalized.Length == 0 || currentItemsByName.ContainsKey(normalized)) continue;
+                    currentItemsByName.Add(normalized, item);
+                }
+
+                foreach (Dictionary<string, string> row in items.Rows.OrderBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "id"); }))
+                {
+                    int sourceId = CsvInt(row, "id");
+                    string sourceName;
+                    if (!sourceItemEnglishNames.TryGetValue(sourceId, out sourceName) || sourceName.Length == 0)
+                    {
+                        sourceName = CsvValue(row, "identifier");
+                    }
+
+                    ItemEntry byId;
+                    if (currentItemsById.TryGetValue(sourceId, out byId) && NormalizeName(LocalName(byId.names)) == NormalizeName(sourceName))
+                    {
+                        AddMapping("item", sourceId.ToString(), byId.id.ToString(), "existing_id_name", "item id and English name match", sourceName);
+                        continue;
+                    }
+
+                    ItemEntry byName;
+                    if (currentItemsByName.TryGetValue(NormalizeName(sourceName), out byName))
+                    {
+                        AddMapping("item", sourceId.ToString(), byName.id.ToString(), "existing_name", "English name matched legacy item id", sourceName);
+                    }
+                    else if (sourceId > currentMaxItem)
+                    {
+                        AddMapping("item", sourceId.ToString(), sourceId.ToString(), "add", "new PokeAPI item id after current max", sourceName);
+                    }
+                    else
+                    {
+                        AddMapping("item", sourceId.ToString(), "", "needs_review", "item id/name conflict inside current range", sourceName);
+                    }
+                }
+
+                foreach (IGrouping<string, MappingRow> group in report.MappingRows.GroupBy(delegate(MappingRow row) { return row.Entity + ":" + row.Action; }).OrderBy(delegate(IGrouping<string, MappingRow> group) { return group.Key; }))
+                {
+                    report.MappingSummary.Add(group.Key, group.Count().ToString());
+                }
+            }
+
+            private void AddMapping(string entity, string sourceKey, string localId, string action, string reason, string name)
+            {
+                report.MappingRows.Add(new MappingRow(entity, sourceKey, localId, action, reason, name));
             }
 
             private void AddImporterPlan()
@@ -279,6 +461,52 @@ namespace PodexTools
                 if (!row.TryGetValue(column, out value)) return 0;
                 int parsed;
                 return int.TryParse(value, out parsed) ? parsed : 0;
+            }
+
+            private static string CsvValue(Dictionary<string, string> row, string column)
+            {
+                string value;
+                return row.TryGetValue(column, out value) ? value : "";
+            }
+
+            private static Dictionary<int, string> BuildEnglishNameMap(CsvTable names, string idColumn)
+            {
+                var map = new Dictionary<int, string>();
+                foreach (Dictionary<string, string> row in names.Rows)
+                {
+                    if (CsvInt(row, "local_language_id") != 9) continue;
+                    int id = CsvInt(row, idColumn);
+                    if (id <= 0 || map.ContainsKey(id)) continue;
+                    map.Add(id, CsvValue(row, "name"));
+                }
+                return map;
+            }
+
+            private static string LocalName(Dictionary<string, string> names)
+            {
+                if (names == null) return "";
+                string value;
+                if (names.TryGetValue("en", out value) && !string.IsNullOrWhiteSpace(value)) return value;
+                if (names.TryGetValue("zhCN", out value) && !string.IsNullOrWhiteSpace(value)) return value;
+                foreach (string candidate in names.Values)
+                {
+                    if (!string.IsNullOrWhiteSpace(candidate)) return candidate;
+                }
+                return "";
+            }
+
+            private static string NormalizeName(string value)
+            {
+                if (string.IsNullOrWhiteSpace(value)) return "";
+                string decomposed = value.Normalize(NormalizationForm.FormD);
+                var builder = new StringBuilder();
+                foreach (char ch in decomposed)
+                {
+                    UnicodeCategory category = CharUnicodeInfo.GetUnicodeCategory(ch);
+                    if (category == UnicodeCategory.NonSpacingMark) continue;
+                    if (char.IsLetterOrDigit(ch)) builder.Append(char.ToLowerInvariant(ch));
+                }
+                return builder.ToString();
             }
 
             private static int Max(IEnumerable<int> values)
@@ -334,6 +562,8 @@ namespace PodexTools
                 Summary = new Dictionary<string, string>();
                 SourceCoverage = new Dictionary<string, string>();
                 Candidates = new Dictionary<string, string>();
+                MappingSummary = new Dictionary<string, string>();
+                MappingRows = new List<MappingRow>();
                 SourceTables = new List<SourceTableInfo>();
                 MissingSourceFiles = new List<string>();
                 Warnings = new List<string>();
@@ -346,6 +576,8 @@ namespace PodexTools
             public Dictionary<string, string> Summary { get; private set; }
             public Dictionary<string, string> SourceCoverage { get; private set; }
             public Dictionary<string, string> Candidates { get; private set; }
+            public Dictionary<string, string> MappingSummary { get; private set; }
+            public List<MappingRow> MappingRows { get; private set; }
             public List<SourceTableInfo> SourceTables { get; private set; }
             public List<string> MissingSourceFiles { get; private set; }
             public List<string> Warnings { get; private set; }
@@ -366,6 +598,7 @@ namespace PodexTools
                 AppendSourceTables(builder);
                 AppendDictionary(builder, "Source Coverage", SourceCoverage);
                 AppendDictionary(builder, "Expansion Candidates", Candidates);
+                AppendDictionary(builder, "ID Mapping Summary", MappingSummary);
                 AppendList(builder, "Warnings", Warnings);
                 AppendList(builder, "Notes", Notes);
                 AppendList(builder, "Next Plan", Plan);
@@ -442,6 +675,56 @@ namespace PodexTools
             public string Name { get; private set; }
             public int RowCount { get; private set; }
             public List<string> Headers { get; private set; }
+        }
+
+        private sealed class MappingRow
+        {
+            public MappingRow(string entity, string sourceKey, string localId, string action, string reason, string name)
+            {
+                Entity = entity;
+                SourceKey = sourceKey;
+                LocalId = localId;
+                Action = action;
+                Reason = reason;
+                Name = name;
+            }
+
+            public string Entity { get; private set; }
+            public string SourceKey { get; private set; }
+            public string LocalId { get; private set; }
+            public string Action { get; private set; }
+            public string Reason { get; private set; }
+            public string Name { get; private set; }
+
+            public static string ToCsv(List<MappingRow> rows)
+            {
+                var builder = new StringBuilder();
+                builder.AppendLine("entity,source_key,local_id,action,reason,name");
+                foreach (MappingRow row in rows)
+                {
+                    builder.Append(CsvEscape(row.Entity));
+                    builder.Append(",");
+                    builder.Append(CsvEscape(row.SourceKey));
+                    builder.Append(",");
+                    builder.Append(CsvEscape(row.LocalId));
+                    builder.Append(",");
+                    builder.Append(CsvEscape(row.Action));
+                    builder.Append(",");
+                    builder.Append(CsvEscape(row.Reason));
+                    builder.Append(",");
+                    builder.Append(CsvEscape(row.Name));
+                    builder.AppendLine();
+                }
+                return builder.ToString();
+            }
+
+            private static string CsvEscape(string value)
+            {
+                if (value == null) value = "";
+                bool quote = value.IndexOfAny(new[] { ',', '"', '\r', '\n' }) >= 0;
+                value = value.Replace("\"", "\"\"");
+                return quote ? "\"" + value + "\"" : value;
+            }
         }
 
         private sealed class ItemGenerationPair
@@ -549,6 +832,7 @@ namespace PodexTools
             public string DataPath { get; private set; }
             public string SourcePath { get; private set; }
             public string ReportPath { get; private set; }
+            public string MapPath { get; private set; }
             public bool RequireSource { get; private set; }
             public bool ShowHelp { get; private set; }
 
@@ -574,6 +858,10 @@ namespace PodexTools
                     {
                         options.ReportPath = args[++i];
                     }
+                    else if (arg == "--map" && i + 1 < args.Length)
+                    {
+                        options.MapPath = args[++i];
+                    }
                     else if (arg == "--require-source")
                     {
                         options.RequireSource = true;
@@ -588,7 +876,7 @@ namespace PodexTools
 
             public static string HelpText()
             {
-                return "Usage: PodexDataImporter.exe --data <pokemon.json> --source <pokeapi-csv-dir> [--report <path>] [--require-source]";
+                return "Usage: PodexDataImporter.exe --data <pokemon.json> --source <pokeapi-csv-dir> [--report <path>] [--map <path>] [--require-source]";
             }
         }
     }
@@ -633,6 +921,8 @@ namespace PodexTools
         public int legacyId { get; set; }
         public int nationalDex { get; set; }
         public int generation { get; set; }
+        public Dictionary<string, string> names { get; set; }
+        public Dictionary<string, string> formNames { get; set; }
     }
 
     public sealed class TypeRef
@@ -666,17 +956,20 @@ namespace PodexTools
     {
         public int id { get; set; }
         public int generation { get; set; }
+        public Dictionary<string, string> names { get; set; }
     }
 
     public sealed class AbilityEntry
     {
         public int id { get; set; }
         public int generation { get; set; }
+        public Dictionary<string, string> names { get; set; }
     }
 
     public sealed class ItemEntry
     {
         public int id { get; set; }
+        public Dictionary<string, string> names { get; set; }
         public ItemFlags flags { get; set; }
         public List<int> generations { get; set; }
         public List<int> versionGroups { get; set; }

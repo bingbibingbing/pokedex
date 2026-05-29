@@ -2,6 +2,7 @@ param(
   [string]$DataPath,
   [string]$SourcePath,
   [string]$ReportPath,
+  [string]$MapPath,
   [switch]$RequireSource
 )
 
@@ -23,6 +24,10 @@ if (-not $SourcePath) {
 
 if (-not $ReportPath) {
   $ReportPath = Join-Path $Root "artifacts\import-data-report.txt"
+}
+
+if (-not $MapPath) {
+  $MapPath = Join-Path $Root "artifacts\import-id-map-preview.csv"
 }
 
 if (-not (Test-Path $Csc)) {
@@ -54,7 +59,8 @@ if ($LASTEXITCODE -ne 0) {
 $argsList = @(
   "--data", (Resolve-Path -LiteralPath $DataPath).Path,
   "--source", $SourcePath,
-  "--report", $ReportPath
+  "--report", $ReportPath,
+  "--map", $MapPath
 )
 
 if ($RequireSource) {
