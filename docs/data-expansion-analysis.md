@@ -193,6 +193,14 @@ Implementation status:
 - The importer also writes `artifacts/import-id-map-preview.csv`, a reviewable source-to-local ID mapping preview.
 - The importer can generate `artifacts/pokemon-catalog-preview.json` with added moves, abilities, and items only. Pokemon/forms/evolutions/learnsets remain out of preview until ID mapping is reviewed.
 - Preview generation is strict Chinese by default: new rows without zh-CN names or descriptions are skipped and listed in `artifacts/missing-chinese.csv`.
+- The importer can apply `tools/import-data/overrides/zh-cn.csv` for missing zh-CN names/descriptions. For moves, override descriptions are keyed by move ID so one move does not pollute another move that shares a PokeAPI effect ID.
+- `tools/fetch-52poke-zh-cn.ps1` can generate small, reviewable zh-CN override batches from 52poke MediaWiki API results. It records source title, URL, and `CC BY-NC-SA 3.0`, uses serial requests with retry, and rejects dirty or incomplete text rather than allowing English fallback.
+
+Current preview milestone:
+
+- A conservative move override batch imports 28 additional moves into `artifacts/pokemon-catalog-preview.json`.
+- The preview validates with `Errors: 0`.
+- Existing warnings remain from legacy placeholder learnsets and missing item images; they are not introduced by the move preview.
 
 ## Validation Checklist
 

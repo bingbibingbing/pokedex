@@ -799,6 +799,22 @@ namespace PodexTools
             }
         }
 
+        private sealed class ChineseOverride
+        {
+            public ChineseOverride(string entity, int sourceId, string name, string description)
+            {
+                Entity = entity;
+                SourceId = sourceId;
+                Name = name;
+                Description = description;
+            }
+
+            public string Entity { get; private set; }
+            public int SourceId { get; private set; }
+            public string Name { get; private set; }
+            public string Description { get; private set; }
+        }
+
         private sealed class ItemGenerationPair
         {
             public ItemGenerationPair(int itemId, int generationId)
@@ -945,10 +961,13 @@ namespace PodexTools
 
                 Dictionary<int, Dictionary<string, string>> moveNameMap = BuildLocalizedTextMap(moveNames, "move_id", "name");
                 Dictionary<int, Dictionary<string, string>> moveEffectMap = BuildLocalizedTextMap(moveEffects, "move_effect_id", "short_effect");
+                Dictionary<int, Dictionary<string, string>> moveDescriptionOverrides = new Dictionary<int, Dictionary<string, string>>();
                 Dictionary<int, Dictionary<string, string>> abilityNameMap = BuildLocalizedTextMap(abilityNames, "ability_id", "name");
                 Dictionary<int, Dictionary<string, string>> abilityTextMap = BuildLocalizedTextMap(abilityProse, "ability_id", "short_effect");
                 Dictionary<int, Dictionary<string, string>> itemNameMap = BuildLocalizedTextMap(itemNames, "item_id", "name");
                 Dictionary<int, Dictionary<string, string>> itemTextMap = BuildLocalizedTextMap(itemProse, "item_id", "short_effect");
+                List<ChineseOverride> overrides = LoadChineseOverrides(options.ChineseOverridePath);
+                ApplyChineseOverrides(overrides, moveNameMap, moveDescriptionOverrides, abilityNameMap, abilityTextMap, itemNameMap, itemTextMap);
                 Dictionary<int, List<int>> itemGenerations = BuildItemGenerationMap(itemGameIndices);
                 Dictionary<int, Dictionary<string, object>> typeRefs = BuildTypeRefs(raw);
 
@@ -966,13 +985,13 @@ namespace PodexTools
                         continue;
                     }
                     int effectId = CsvInt(row, "effect_id");
-                    if (!options.AllowEnglishFallback && !HasCompleteChinese(moveNameMap, id, moveEffectMap, effectId))
+                    if (!options.AllowEnglishFallback && !HasCompleteMoveChinese(moveNameMap, id, moveDescriptionOverrides, moveEffectMap, effectId))
                     {
-                        report.MissingChineseRows.Add(new MissingChineseRow("move", id, CsvValue(row, "identifier"), !HasChinese(moveNameMap, id), !HasChinese(moveEffectMap, effectId)));
+                        report.MissingChineseRows.Add(new MissingChineseRow("move", id, CsvValue(row, "identifier"), !HasChinese(moveNameMap, id), !HasMoveChineseDescription(moveDescriptionOverrides, id, moveEffectMap, effectId)));
                         skippedMovesMissingChinese++;
                         continue;
                     }
-                    moves.Add(BuildMove(row, moveNameMap, moveEffectMap, typeRefs));
+                    moves.Add(BuildMove(row, moveNameMap, moveEffectMap, moveDescriptionOverrides, typeRefs));
                     addedMoves++;
                 }
 
@@ -1036,6 +1055,7 @@ namespace PodexTools
                 report.PreviewSummary["Skipped items without generation availability"] = skippedItems.ToString();
                 report.PreviewSummary["Skipped items missing Chinese"] = skippedItemsMissingChinese.ToString();
                 report.PreviewSummary["Missing Chinese report"] = string.IsNullOrWhiteSpace(options.MissingChinesePath) ? "--" : Path.GetFullPath(options.MissingChinesePath);
+                report.PreviewSummary["Chinese overrides loaded"] = overrides.Count.ToString();
                 report.PreviewSummary["Preview moves total"] = moves.Count.ToString();
                 report.PreviewSummary["Preview abilities total"] = abilities.Count.ToString();
                 report.PreviewSummary["Preview items total"] = items.Count.ToString();
@@ -1045,6 +1065,7 @@ namespace PodexTools
                 Dictionary<string, string> row,
                 Dictionary<int, Dictionary<string, string>> names,
                 Dictionary<int, Dictionary<string, string>> effects,
+                Dictionary<int, Dictionary<string, string>> descriptionOverrides,
                 Dictionary<int, Dictionary<string, object>> typeRefs)
             {
                 int id = CsvInt(row, "id");
@@ -1062,7 +1083,7 @@ namespace PodexTools
                 move["pp"] = NullableInt(row, "pp");
                 move["priority"] = CsvInt(row, "priority");
                 move["rangeId"] = MoveRangeId(CsvInt(row, "target_id"));
-                move["descriptions"] = TextOrIdentifier(effects, effectId, CsvValue(row, "identifier"));
+                move["descriptions"] = MoveDescriptionText(effects, effectId, descriptionOverrides, id, CsvValue(row, "identifier"));
                 return move;
             }
 
@@ -1147,6 +1168,25 @@ namespace PodexTools
                 return HasChinese(names, nameId) && HasChinese(descriptions, descriptionId);
             }
 
+            private static bool HasCompleteMoveChinese(
+                Dictionary<int, Dictionary<string, string>> names,
+                int moveId,
+                Dictionary<int, Dictionary<string, string>> descriptionOverrides,
+                Dictionary<int, Dictionary<string, string>> effectDescriptions,
+                int effectId)
+            {
+                return HasChinese(names, moveId) && HasMoveChineseDescription(descriptionOverrides, moveId, effectDescriptions, effectId);
+            }
+
+            private static bool HasMoveChineseDescription(
+                Dictionary<int, Dictionary<string, string>> descriptionOverrides,
+                int moveId,
+                Dictionary<int, Dictionary<string, string>> effectDescriptions,
+                int effectId)
+            {
+                return HasChinese(descriptionOverrides, moveId) || HasChinese(effectDescriptions, effectId);
+            }
+
             private static bool HasChinese(Dictionary<int, Dictionary<string, string>> valuesById, int id)
             {
                 Dictionary<string, string> values;
@@ -1154,6 +1194,91 @@ namespace PodexTools
                 return valuesById.TryGetValue(id, out values) &&
                     values.TryGetValue("zhCN", out value) &&
                     !string.IsNullOrWhiteSpace(value);
+            }
+
+            private static List<ChineseOverride> LoadChineseOverrides(string path)
+            {
+                var overrides = new List<ChineseOverride>();
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return overrides;
+                CsvTable table = CsvTable.Load(path);
+                foreach (Dictionary<string, string> row in table.Rows)
+                {
+                    int sourceId = CsvInt(row, "source_id");
+                    if (sourceId <= 0) continue;
+                    string entity = CsvValue(row, "entity");
+                    string name = CsvValue(row, "zhCN_name");
+                    string description = CsvValue(row, "zhCN_description");
+                    if (string.IsNullOrWhiteSpace(entity) || (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(description))) continue;
+                    overrides.Add(new ChineseOverride(entity, sourceId, name, description));
+                }
+                return overrides;
+            }
+
+            private static void ApplyChineseOverrides(
+                List<ChineseOverride> overrides,
+                Dictionary<int, Dictionary<string, string>> moveNameMap,
+                Dictionary<int, Dictionary<string, string>> moveDescriptionOverrides,
+                Dictionary<int, Dictionary<string, string>> abilityNameMap,
+                Dictionary<int, Dictionary<string, string>> abilityTextMap,
+                Dictionary<int, Dictionary<string, string>> itemNameMap,
+                Dictionary<int, Dictionary<string, string>> itemTextMap)
+            {
+                foreach (ChineseOverride row in overrides)
+                {
+                    if (row.Entity.Equals("move", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ApplyChineseMoveOverride(moveNameMap, moveDescriptionOverrides, row);
+                    }
+                    else if (row.Entity.Equals("ability", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ApplyChineseOverride(abilityNameMap, abilityTextMap, row);
+                    }
+                    else if (row.Entity.Equals("item", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ApplyChineseOverride(itemNameMap, itemTextMap, row);
+                    }
+                }
+            }
+
+            private static void ApplyChineseMoveOverride(
+                Dictionary<int, Dictionary<string, string>> names,
+                Dictionary<int, Dictionary<string, string>> descriptionsByMoveId,
+                ChineseOverride row)
+            {
+                if (!string.IsNullOrWhiteSpace(row.Name))
+                {
+                    EnsureTextMap(names, row.SourceId)["zhCN"] = row.Name;
+                }
+                if (!string.IsNullOrWhiteSpace(row.Description))
+                {
+                    EnsureTextMap(descriptionsByMoveId, row.SourceId)["zhCN"] = row.Description;
+                }
+            }
+
+            private static void ApplyChineseOverride(
+                Dictionary<int, Dictionary<string, string>> names,
+                Dictionary<int, Dictionary<string, string>> descriptions,
+                ChineseOverride row)
+            {
+                if (!string.IsNullOrWhiteSpace(row.Name))
+                {
+                    EnsureTextMap(names, row.SourceId)["zhCN"] = row.Name;
+                }
+                if (!string.IsNullOrWhiteSpace(row.Description))
+                {
+                    EnsureTextMap(descriptions, row.SourceId)["zhCN"] = row.Description;
+                }
+            }
+
+            private static Dictionary<string, string> EnsureTextMap(Dictionary<int, Dictionary<string, string>> map, int id)
+            {
+                Dictionary<string, string> values;
+                if (!map.TryGetValue(id, out values))
+                {
+                    values = new Dictionary<string, string>();
+                    map.Add(id, values);
+                }
+                return values;
             }
 
             private static Dictionary<int, List<int>> BuildItemGenerationMap(CsvTable table)
@@ -1244,6 +1369,33 @@ namespace PodexTools
                 return new Dictionary<string, string> { { "en", identifier }, { "zhCN", identifier } };
             }
 
+            private static Dictionary<string, string> MoveDescriptionText(
+                Dictionary<int, Dictionary<string, string>> effects,
+                int effectId,
+                Dictionary<int, Dictionary<string, string>> descriptionOverrides,
+                int moveId,
+                string identifier)
+            {
+                var result = new Dictionary<string, string>();
+                Dictionary<string, string> values;
+                if (effects.TryGetValue(effectId, out values))
+                {
+                    foreach (KeyValuePair<string, string> value in values)
+                    {
+                        if (!string.IsNullOrWhiteSpace(value.Value)) result[value.Key] = value.Value;
+                    }
+                }
+                if (descriptionOverrides.TryGetValue(moveId, out values))
+                {
+                    foreach (KeyValuePair<string, string> value in values)
+                    {
+                        if (!string.IsNullOrWhiteSpace(value.Value)) result[value.Key] = value.Value;
+                    }
+                }
+                if (result.Count > 0) return result;
+                return new Dictionary<string, string> { { "en", identifier }, { "zhCN", identifier } };
+            }
+
             private static object NullableInt(Dictionary<string, string> row, string column)
             {
                 string value = CsvValue(row, column);
@@ -1317,6 +1469,7 @@ namespace PodexTools
             public string MapPath { get; private set; }
             public string PreviewDataPath { get; private set; }
             public string MissingChinesePath { get; private set; }
+            public string ChineseOverridePath { get; private set; }
             public bool AllowEnglishFallback { get; private set; }
             public bool RequireSource { get; private set; }
             public bool ShowHelp { get; private set; }
@@ -1355,6 +1508,10 @@ namespace PodexTools
                     {
                         options.MissingChinesePath = args[++i];
                     }
+                    else if (arg == "--chinese-overrides" && i + 1 < args.Length)
+                    {
+                        options.ChineseOverridePath = args[++i];
+                    }
                     else if (arg == "--allow-english-fallback")
                     {
                         options.AllowEnglishFallback = true;
@@ -1373,7 +1530,7 @@ namespace PodexTools
 
             public static string HelpText()
             {
-                return "Usage: PodexDataImporter.exe --data <pokemon.json> --source <pokeapi-csv-dir> [--report <path>] [--map <path>] [--preview-data <path>] [--missing-chinese <path>] [--allow-english-fallback] [--require-source]";
+                return "Usage: PodexDataImporter.exe --data <pokemon.json> --source <pokeapi-csv-dir> [--report <path>] [--map <path>] [--preview-data <path>] [--missing-chinese <path>] [--chinese-overrides <path>] [--allow-english-fallback] [--require-source]";
             }
         }
     }

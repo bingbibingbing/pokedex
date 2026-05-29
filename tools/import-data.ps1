@@ -5,6 +5,7 @@ param(
   [string]$MapPath,
   [string]$PreviewDataPath,
   [string]$MissingChinesePath,
+  [string]$ChineseOverridePath,
   [switch]$AllowEnglishFallback,
   [switch]$RequireSource
 )
@@ -41,6 +42,10 @@ if (-not $MissingChinesePath) {
   $MissingChinesePath = Join-Path $Root "artifacts\missing-chinese.csv"
 }
 
+if (-not $ChineseOverridePath) {
+  $ChineseOverridePath = Join-Path $Root "tools\import-data\overrides\zh-cn.csv"
+}
+
 if (-not (Test-Path $Csc)) {
   throw "C# compiler not found: $Csc"
 }
@@ -73,7 +78,8 @@ $argsList = @(
   "--report", $ReportPath,
   "--map", $MapPath,
   "--preview-data", $PreviewDataPath,
-  "--missing-chinese", $MissingChinesePath
+  "--missing-chinese", $MissingChinesePath,
+  "--chinese-overrides", $ChineseOverridePath
 )
 
 if ($AllowEnglishFallback) {

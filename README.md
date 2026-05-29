@@ -94,3 +94,21 @@ artifacts\missing-chinese.csv
 Downloaded CSV files are cached under `tools\import-data\source-cache` and are ignored by Git.
 By default, the preview JSON refuses English fallback and skips new rows that lack zh-CN names or descriptions.
 The preview JSON adds new moves, abilities, and items only; it does not import Pokemon forms, evolutions, or learnsets yet.
+
+## Chinese Overrides
+
+New catalog rows must have zh-CN text. PokeAPI is used for structured data, but its newer Chinese effect text is incomplete, so the importer can apply a local override CSV:
+
+```text
+tools\import-data\overrides\zh-cn.csv
+```
+
+Generate a small, reviewable batch from 52poke through its MediaWiki API:
+
+```powershell
+.\tools\fetch-52poke-zh-cn.ps1 -Entity move -FromSourceId 729 -Limit 60
+.\tools\import-data.ps1 -RequireSource
+.\tools\validate-data.ps1 -DataPath artifacts\pokemon-catalog-preview.json
+```
+
+The fetcher is intentionally conservative: it uses serial requests, retries transient failures, stores source title/URL/license, and rejects low-quality text instead of importing English fallback or dirty wiki markup.
