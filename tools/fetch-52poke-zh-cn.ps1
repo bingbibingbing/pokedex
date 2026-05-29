@@ -197,6 +197,11 @@ function Test-WikiPageMatch {
     return $false
   }
 
+  $pageEnglishName = Get-InfoboxField $Content @("enname")
+  if (-not [string]::IsNullOrWhiteSpace($EnglishName) -and -not [string]::IsNullOrWhiteSpace($pageEnglishName)) {
+    return (Normalize-MatchText $pageEnglishName).Equals((Normalize-MatchText $EnglishName), [System.StringComparison]::OrdinalIgnoreCase)
+  }
+
   if ($Entity -eq "move" -and $SourceId -gt 0) {
     $pageSourceId = Get-InfoboxField $Content @("n")
     $parsedSourceId = 0
@@ -207,17 +212,20 @@ function Test-WikiPageMatch {
     }
   }
 
-  $pageEnglishName = Get-InfoboxField $Content @("enname")
-  if (-not [string]::IsNullOrWhiteSpace($EnglishName) -and -not [string]::IsNullOrWhiteSpace($pageEnglishName)) {
-    return $pageEnglishName.Equals($EnglishName, [System.StringComparison]::OrdinalIgnoreCase)
-  }
-
   $pageChineseName = Get-EntityName $Content
   if (-not [string]::IsNullOrWhiteSpace($ChineseName) -and -not [string]::IsNullOrWhiteSpace($pageChineseName)) {
-    return (Convert-TraditionalTerms $pageChineseName) -eq (Convert-TraditionalTerms $ChineseName)
+    return (Normalize-MatchText (Convert-TraditionalTerms $pageChineseName)) -eq (Normalize-MatchText (Convert-TraditionalTerms $ChineseName))
   }
 
   return $true
+}
+
+function Normalize-MatchText {
+  param([string]$Text)
+  if ($null -eq $Text) {
+    return ""
+  }
+  return ([regex]::Replace($Text, "[\p{C}\s]+", "")).Trim()
 }
 
 function Get-WikiText {
@@ -260,6 +268,7 @@ function Use-ZhHans {
 function Convert-WikiTextToPlain {
   param([string]$Text)
   $value = Use-ZhHans $Text
+  $value = [regex]::Replace($value, "[\u200e\u200f\u202a-\u202e\ufeff]", "")
   $value = [regex]::Replace($value, "<!--.*?-->", "", [System.Text.RegularExpressions.RegexOptions]::Singleline)
   $value = [regex]::Replace($value, "<ref[^>]*>.*?</ref>", "", [System.Text.RegularExpressions.RegexOptions]::Singleline)
   $value = [regex]::Replace($value, "<[^>]+>", "")
@@ -322,6 +331,7 @@ function Convert-WikiTextToPlain {
   $value = [regex]::Replace($value, "\s+", " ")
   $value = [regex]::Replace($value, "\s+([。！？；，])", '$1')
   $value = [regex]::Replace($value, "([。！？；，])\s+", '$1')
+  $value = [regex]::Replace($value, "时时", "时")
   return $value.Trim()
 }
 
@@ -440,7 +450,7 @@ function Test-TextQuality {
   if ($Text -match "日文︰|英文︰|是第[一二三四五六七八九十]+世代引入|目前类似|游戏漏洞|；\s*；|如、|、等|拥有、|^.*（日文") {
     return $false
   }
-  if ($Text -match "的的|可被的|陷入和状态|例如）|特性为或|特性（如|如等|因素：.*；\s*；|无视、|、、、|、、|===|受到接触类招式的攻击时，\s*$|若＞|若＜|该招式优先度\\+1|结实特性不能阻止|（）|的（向|最大ＨＰ的（|使用者的、|目标的、|或等|携带了或|特性为无法|的该副作用|对的该副作用|会 会|自身回复造成伤害$|威力 = [^。]*×\s*。|鳞粉或防止|使用等招式|（向下取整）的反作用力|全部提高|进入状态|陷入状态|携带的宝可梦|对特性的宝可梦|拥有特性的宝可梦|存在特性的宝可梦") {
+  if ($Text -match "的的|可被的|陷入和状态|例如）|特性为或|特性（如|如等|因素：.*；\s*；|无视、|、、、|、、|===|受到接触类招式的攻击时，\s*$|若＞|若＜|该招式优先度\\+1|结实特性不能阻止|（）|的（向|最大ＨＰ的（|使用者的、|目标的、|或等|携带了或|特性为无法|的该副作用|对的该副作用|会 会|时时|自身回复造成伤害$|威力 = [^。]*×\s*。|鳞粉或防止|使用等招式|（向下取整）的反作用力|全部提高|进入状态|陷入状态|携带的宝可梦|对特性的宝可梦|拥有特性的宝可梦|存在特性的宝可梦") {
     return $false
   }
   return $true
