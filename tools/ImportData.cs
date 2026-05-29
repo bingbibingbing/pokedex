@@ -978,6 +978,7 @@ namespace PodexTools
                 CsvTable pokemonStats = CsvTable.Load(Path.Combine(options.SourcePath, "pokemon_stats.csv"));
                 CsvTable pokemonAbilities = CsvTable.Load(Path.Combine(options.SourcePath, "pokemon_abilities.csv"));
                 CsvTable pokemonEggGroups = CsvTable.Load(Path.Combine(options.SourcePath, "pokemon_egg_groups.csv"));
+                CsvTable pokemonEvolutions = CsvTable.Load(Path.Combine(options.SourcePath, "pokemon_evolution.csv"));
                 CsvTable sourceMoves = CsvTable.Load(Path.Combine(options.SourcePath, "moves.csv"));
                 CsvTable moveNames = CsvTable.Load(Path.Combine(options.SourcePath, "move_names.csv"));
                 CsvTable moveEffects = CsvTable.Load(Path.Combine(options.SourcePath, "move_effect_prose.csv"));
@@ -1005,14 +1006,19 @@ namespace PodexTools
                 Dictionary<int, List<int>> itemGenerations = BuildItemGenerationMap(itemGameIndices);
                 Dictionary<int, Dictionary<string, object>> typeRefs = BuildTypeRefs(raw);
                 Dictionary<int, Dictionary<string, object>> abilityRefs = BuildNamedRefs(abilityNameMap);
+                Dictionary<int, Dictionary<string, object>> moveRefs = BuildNamedRefs(moveNameMap);
+                Dictionary<int, Dictionary<string, object>> itemRefs = BuildNamedRefs(itemNameMap);
                 Dictionary<int, Dictionary<string, object>> eggGroupRefs = BuildNestedNamedRefs(pokemon, "eggGroups");
                 Dictionary<int, Dictionary<string, object>> genderRatioRefs = BuildNestedNamedRefs(pokemon, "genderRatio");
+                Dictionary<int, Dictionary<string, object>> evolutionMethodRefs = BuildSingleNamedRefs(evolutions, "method");
+                Dictionary<int, Dictionary<string, object>> evolutionStageRefs = BuildSingleNamedRefs(evolutions, "stage");
                 Dictionary<int, Dictionary<string, object>> singleTypeDefense = BuildSingleTypeDefense(pokemon);
                 Dictionary<int, Dictionary<string, string>> speciesRows = BuildRowMap(sourceSpecies, "id");
                 Dictionary<int, List<Dictionary<string, string>>> typeRowsByPokemon = BuildRowsByInt(pokemonTypes, "pokemon_id");
                 Dictionary<int, List<Dictionary<string, string>>> statRowsByPokemon = BuildRowsByInt(pokemonStats, "pokemon_id");
                 Dictionary<int, List<Dictionary<string, string>>> abilityRowsByPokemon = BuildRowsByInt(pokemonAbilities, "pokemon_id");
                 Dictionary<int, List<Dictionary<string, string>>> eggGroupRowsBySpecies = BuildRowsByInt(pokemonEggGroups, "species_id");
+                Dictionary<int, List<Dictionary<string, string>>> evolutionRowsBySpecies = BuildRowsByInt(pokemonEvolutions, "evolved_species_id");
 
                 int addedPokemon = 0;
                 int skippedPokemon = 0;
@@ -1035,7 +1041,7 @@ namespace PodexTools
                         continue;
                     }
                     pokemon.Add(BuildPokemon(row, speciesRow, pokemonNameMap, pokemonGenusMap, pokemonFlavorMap, pokemonDescriptionOverrides, typeRowsByPokemon, statRowsByPokemon, abilityRowsByPokemon, eggGroupRowsBySpecies, typeRefs, abilityRefs, eggGroupRefs, genderRatioRefs, singleTypeDefense));
-                    evolutions.Add(BuildPokemonEvolutionStub(speciesRow));
+                    evolutions.Add(BuildPokemonEvolution(row, speciesRow, speciesRows, evolutionRowsBySpecies, evolutionMethodRefs, evolutionStageRefs, itemRefs, moveRefs));
                     addedPokemon++;
                 }
 
@@ -1124,6 +1130,7 @@ namespace PodexTools
                 raw["moves"] = moves;
                 raw["abilities"] = abilities;
                 raw["items"] = items;
+                UpdateEvolutionStageMax(evolutions);
                 UpdateMetaCounts(raw, pokemon.Count, MaxRawId(pokemon, "nationalDex"), moves.Count, abilities.Count, items.Count, evolutions.Count);
 
                 string outputDirectory = Path.GetDirectoryName(Path.GetFullPath(options.PreviewDataPath));
@@ -1297,19 +1304,34 @@ namespace PodexTools
                 return pokemon;
             }
 
-            private static Dictionary<string, object> BuildPokemonEvolutionStub(Dictionary<string, string> speciesRow)
+            private static Dictionary<string, object> BuildPokemonEvolution(
+                Dictionary<string, string> pokemonRow,
+                Dictionary<string, string> speciesRow,
+                Dictionary<int, Dictionary<string, string>> speciesRows,
+                Dictionary<int, List<Dictionary<string, string>>> evolutionRowsBySpecies,
+                Dictionary<int, Dictionary<string, object>> methodRefs,
+                Dictionary<int, Dictionary<string, object>> stageRefs,
+                Dictionary<int, Dictionary<string, object>> itemRefs,
+                Dictionary<int, Dictionary<string, object>> moveRefs)
             {
+                int speciesId = CsvInt(speciesRow, "id");
+                int previousId = CsvInt(speciesRow, "evolves_from_species_id");
+                int rootId = EvolutionRootId(speciesId, speciesRows);
+                int stageId = EvolutionStageId(speciesId, speciesRows);
+                Dictionary<string, string> evolutionRow = BestEvolutionRow(speciesId, evolutionRowsBySpecies);
+                EvolutionDisplay display = BuildEvolutionDisplay(evolutionRow, methodRefs, itemRefs, moveRefs);
+
                 var evolution = new Dictionary<string, object>();
-                evolution["pokemonId"] = CsvInt(speciesRow, "id");
-                evolution["familyId"] = CsvInt(speciesRow, "evolution_chain_id");
-                evolution["stageId"] = 0;
-                evolution["stageMax"] = null;
-                evolution["previousPokemonId"] = CsvInt(speciesRow, "evolves_from_species_id");
-                evolution["method"] = null;
-                evolution["stage"] = null;
-                evolution["conditionKind"] = null;
-                evolution["conditionValue"] = null;
-                evolution["condition"] = null;
+                evolution["pokemonId"] = speciesId;
+                evolution["familyId"] = rootId > 0 ? rootId : CsvInt(speciesRow, "evolution_chain_id");
+                evolution["stageId"] = stageId;
+                evolution["stageMax"] = EvolutionStageMax(rootId, speciesRows);
+                evolution["previousPokemonId"] = previousId > 0 ? previousId : -1;
+                evolution["method"] = previousId > 0 ? display.Method : null;
+                evolution["stage"] = EvolutionStageRef(stageId, stageRefs);
+                evolution["conditionKind"] = previousId > 0 ? display.ConditionKind : "none";
+                evolution["conditionValue"] = previousId > 0 ? display.ConditionValue : (object)(-1);
+                evolution["condition"] = previousId > 0 ? display.Condition : null;
                 return evolution;
             }
 
@@ -1615,6 +1637,18 @@ namespace PodexTools
                 return result;
             }
 
+            private static Dictionary<int, Dictionary<string, object>> BuildSingleNamedRefs(List<object> rows, string property)
+            {
+                var result = new Dictionary<int, Dictionary<string, object>>();
+                foreach (object value in rows)
+                {
+                    var row = value as Dictionary<string, object>;
+                    if (row == null || !row.ContainsKey(property) || row[property] == null) continue;
+                    AddNestedNamedRef(result, row[property]);
+                }
+                return result;
+            }
+
             private static Dictionary<int, Dictionary<string, object>> BuildNestedNamedRefs(List<object> pokemon, string property)
             {
                 var result = new Dictionary<int, Dictionary<string, object>>();
@@ -1671,6 +1705,340 @@ namespace PodexTools
                     if (typeId > 0 && defense != null && !result.ContainsKey(typeId)) result.Add(typeId, defense);
                 }
                 return result;
+            }
+
+            private static Dictionary<string, string> BestEvolutionRow(
+                int speciesId,
+                Dictionary<int, List<Dictionary<string, string>>> evolutionRowsBySpecies)
+            {
+                List<Dictionary<string, string>> rows;
+                if (!evolutionRowsBySpecies.TryGetValue(speciesId, out rows) || rows.Count == 0) return null;
+
+                Dictionary<string, string> best = null;
+                int bestScore = -1;
+                foreach (Dictionary<string, string> row in rows)
+                {
+                    int score = EvolutionRowScore(row);
+                    if (score >= bestScore)
+                    {
+                        best = row;
+                        bestScore = score;
+                    }
+                }
+                return best;
+            }
+
+            private static int EvolutionRowScore(Dictionary<string, string> row)
+            {
+                int score = 0;
+                foreach (string column in new[]
+                {
+                    "trigger_item_id", "minimum_level", "gender_id", "held_item_id", "time_of_day",
+                    "known_move_id", "known_move_type_id", "minimum_happiness", "minimum_affection",
+                    "relative_physical_stats", "party_species_id", "party_type_id", "trade_species_id",
+                    "region_id", "used_move_id", "minimum_move_count", "minimum_steps", "minimum_damage_taken"
+                })
+                {
+                    if (!string.IsNullOrWhiteSpace(CsvValue(row, column))) score++;
+                }
+                if (CsvValue(row, "needs_overworld_rain") == "1") score++;
+                if (CsvValue(row, "turn_upside_down") == "1") score++;
+                if (CsvValue(row, "needs_multiplayer") == "1") score++;
+                return score;
+            }
+
+            private static int EvolutionRootId(int speciesId, Dictionary<int, Dictionary<string, string>> speciesRows)
+            {
+                int currentId = speciesId;
+                var visited = new HashSet<int>();
+                while (currentId > 0 && visited.Add(currentId))
+                {
+                    Dictionary<string, string> row;
+                    if (!speciesRows.TryGetValue(currentId, out row)) break;
+                    int previousId = CsvInt(row, "evolves_from_species_id");
+                    if (previousId <= 0) return currentId;
+                    currentId = previousId;
+                }
+                return speciesId;
+            }
+
+            private static int EvolutionStageId(int speciesId, Dictionary<int, Dictionary<string, string>> speciesRows)
+            {
+                int stage = 1;
+                int currentId = speciesId;
+                var visited = new HashSet<int>();
+                while (currentId > 0 && visited.Add(currentId))
+                {
+                    Dictionary<string, string> row;
+                    if (!speciesRows.TryGetValue(currentId, out row)) break;
+                    int previousId = CsvInt(row, "evolves_from_species_id");
+                    if (previousId <= 0) break;
+                    stage++;
+                    currentId = previousId;
+                }
+                return stage;
+            }
+
+            private static int EvolutionStageMax(int rootId, Dictionary<int, Dictionary<string, string>> speciesRows)
+            {
+                int max = 1;
+                foreach (int speciesId in speciesRows.Keys)
+                {
+                    if (EvolutionRootId(speciesId, speciesRows) != rootId) continue;
+                    int stage = EvolutionStageId(speciesId, speciesRows);
+                    if (stage > max) max = stage;
+                }
+                return max;
+            }
+
+            private static Dictionary<string, object> EvolutionStageRef(int stageId, Dictionary<int, Dictionary<string, object>> stageRefs)
+            {
+                Dictionary<string, object> refObject;
+                if (stageRefs.TryGetValue(stageId, out refObject)) return refObject;
+                return MakeNamedRef(stageId, stageId.ToString(CultureInfo.InvariantCulture));
+            }
+
+            private static void UpdateEvolutionStageMax(List<object> evolutions)
+            {
+                var maxByFamily = new Dictionary<int, int>();
+                foreach (object value in evolutions)
+                {
+                    var row = value as Dictionary<string, object>;
+                    if (row == null) continue;
+                    int familyId = ObjectInt(row.ContainsKey("familyId") ? row["familyId"] : null);
+                    int stageId = ObjectInt(row.ContainsKey("stageId") ? row["stageId"] : null);
+                    if (familyId <= 0 || stageId <= 0) continue;
+                    int current;
+                    if (!maxByFamily.TryGetValue(familyId, out current) || stageId > current) maxByFamily[familyId] = stageId;
+                }
+
+                foreach (object value in evolutions)
+                {
+                    var row = value as Dictionary<string, object>;
+                    if (row == null) continue;
+                    int familyId = ObjectInt(row.ContainsKey("familyId") ? row["familyId"] : null);
+                    int max;
+                    if (familyId > 0 && maxByFamily.TryGetValue(familyId, out max)) row["stageMax"] = max;
+                }
+            }
+
+            private sealed class EvolutionDisplay
+            {
+                public EvolutionDisplay(Dictionary<string, object> method, string conditionKind, object conditionValue, Dictionary<string, object> condition)
+                {
+                    Method = method;
+                    ConditionKind = conditionKind;
+                    ConditionValue = conditionValue;
+                    Condition = condition;
+                }
+
+                public Dictionary<string, object> Method { get; private set; }
+                public string ConditionKind { get; private set; }
+                public object ConditionValue { get; private set; }
+                public Dictionary<string, object> Condition { get; private set; }
+            }
+
+            private static EvolutionDisplay BuildEvolutionDisplay(
+                Dictionary<string, string> row,
+                Dictionary<int, Dictionary<string, object>> methodRefs,
+                Dictionary<int, Dictionary<string, object>> itemRefs,
+                Dictionary<int, Dictionary<string, object>> moveRefs)
+            {
+                if (row == null) return new EvolutionDisplay(null, "none", -1, null);
+
+                int triggerId = CsvInt(row, "evolution_trigger_id");
+                switch (triggerId)
+                {
+                    case 1: return BuildLevelEvolutionDisplay(row, methodRefs, itemRefs, moveRefs);
+                    case 2: return BuildTradeEvolutionDisplay(row, methodRefs, itemRefs);
+                    case 3: return BuildItemEvolutionDisplay(row, methodRefs, itemRefs);
+                    case 4: return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 52, "脱壳进化", "Shed evolution"), "none", -1, null);
+                    case 5: return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 41, "旋转进化", "Spin evolution"), "none", -1, null);
+                    case 6: return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 42, "恶之塔进化", "Tower of Darkness evolution"), "none", -1, null);
+                    case 7: return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 43, "水之塔进化", "Tower of Waters evolution"), "none", -1, null);
+                    case 8: return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 44, "单场三次击中要害后进化", "Three critical hits evolution"), "value", "单场战斗击中要害3次", null);
+                    case 9: return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 45, "受伤后前往特定地点进化", "Take damage evolution"), "value", DamageCondition(row, "累计受到至少", "伤害后前往特定地点"), null);
+                    case 10: return BuildOtherEvolutionDisplay(row, methodRefs);
+                    case 11: return BuildUsedMoveEvolutionDisplay(row, methodRefs, moveRefs, 46, "迅疾使出特定招式后进化", "Agile style move evolution");
+                    case 12: return BuildUsedMoveEvolutionDisplay(row, methodRefs, moveRefs, 47, "刚猛使出特定招式后进化", "Strong style move evolution");
+                    case 13: return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 48, "累计反作用力伤害后进化", "Recoil damage evolution"), "value", DamageCondition(row, "累计承受至少", "反作用力伤害"), null);
+                    case 14: return BuildUsedMoveEvolutionDisplay(row, methodRefs, moveRefs, 49, "使用特定招式后进化", "Use move evolution");
+                    case 15: return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 50, "击败特定宝可梦后进化", "Defeat special Pokemon evolution"), "value", "击败3只携带头领凭证的劈斩司令", null);
+                    case 16: return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 51, "收集硬币后进化", "Collect coins evolution"), "value", "收集999枚索财灵的硬币", null);
+                    default: return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 1, "升级进化", "Level up"), "none", -1, null);
+                }
+            }
+
+            private static EvolutionDisplay BuildLevelEvolutionDisplay(
+                Dictionary<string, string> row,
+                Dictionary<int, Dictionary<string, object>> methodRefs,
+                Dictionary<int, Dictionary<string, object>> itemRefs,
+                Dictionary<int, Dictionary<string, object>> moveRefs)
+            {
+                int minimumLevel = CsvInt(row, "minimum_level");
+                int knownMoveId = CsvInt(row, "known_move_id");
+                int knownMoveTypeId = CsvInt(row, "known_move_type_id");
+                int heldItemId = CsvInt(row, "held_item_id");
+                int partySpeciesId = CsvInt(row, "party_species_id");
+                int partyTypeId = CsvInt(row, "party_type_id");
+                int minimumSteps = CsvInt(row, "minimum_steps");
+                string timeOfDay = CsvValue(row, "time_of_day");
+
+                if (minimumSteps > 0)
+                {
+                    return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 53, "同行步数后升级进化", "Walk together evolution"), "value", "同行" + minimumSteps.ToString(CultureInfo.InvariantCulture) + "步后升级", null);
+                }
+                if (knownMoveId > 0)
+                {
+                    return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 22, "习得特定招式进化", "Level up while knowing a certain move"), "move", knownMoveId, RefOrFallback(moveRefs, knownMoveId, "招式#" + knownMoveId.ToString(CultureInfo.InvariantCulture)));
+                }
+                if (knownMoveTypeId > 0)
+                {
+                    return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 33, "习得特定属性招式后升级进化", "Level up with a move type"), "value", "掌握指定属性招式", null);
+                }
+                if (heldItemId > 0)
+                {
+                    int methodId = timeOfDay == "day" ? 20 : (timeOfDay == "night" ? 21 : 1);
+                    return new EvolutionDisplay(EvolutionMethodRef(methodRefs, methodId, TimeText(timeOfDay) + "持有道具升级进化", "Level up while holding item"), "item", heldItemId, RefOrFallback(itemRefs, heldItemId, "道具#" + heldItemId.ToString(CultureInfo.InvariantCulture)));
+                }
+                if (partySpeciesId > 0)
+                {
+                    return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 23, "队伍里有特定宝可梦进化", "Level up with certain Pokemon in party"), "pokemon", partySpeciesId, null);
+                }
+                if (partyTypeId > 0)
+                {
+                    return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 29, "升级时队伍中有指定属性宝可梦", "Level up with certain type in party"), "value", "队伍中有指定属性宝可梦", null);
+                }
+                if (CsvValue(row, "needs_overworld_rain") == "1")
+                {
+                    return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 34, "下雨时升级进化", "Level up while raining"), minimumLevel > 0 ? "level" : "none", minimumLevel > 0 ? (object)minimumLevel : -1, null);
+                }
+                if (CsvValue(row, "turn_upside_down") == "1")
+                {
+                    return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 30, "升级时把主机反过来", "Level up while upside down"), minimumLevel > 0 ? "level" : "none", minimumLevel > 0 ? (object)minimumLevel : -1, null);
+                }
+                if (CsvInt(row, "minimum_happiness") > 0 || CsvInt(row, "minimum_affection") > 0)
+                {
+                    int methodId = timeOfDay == "day" ? 5 : (timeOfDay == "night" ? 6 : 4);
+                    return new EvolutionDisplay(EvolutionMethodRef(methodRefs, methodId, TimeText(timeOfDay) + "亲密度进化", "Happiness evolution"), minimumLevel > 0 ? "level" : "none", minimumLevel > 0 ? (object)minimumLevel : -1, null);
+                }
+                if (timeOfDay == "day" || timeOfDay == "night")
+                {
+                    int methodId = timeOfDay == "day" ? 31 : 32;
+                    return new EvolutionDisplay(EvolutionMethodRef(methodRefs, methodId, TimeText(timeOfDay) + "升级进化", "Timed level up"), minimumLevel > 0 ? "level" : "none", minimumLevel > 0 ? (object)minimumLevel : -1, null);
+                }
+                return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 1, "升级进化", "Level up"), minimumLevel > 0 ? "level" : "none", minimumLevel > 0 ? (object)minimumLevel : -1, null);
+            }
+
+            private static EvolutionDisplay BuildTradeEvolutionDisplay(
+                Dictionary<string, string> row,
+                Dictionary<int, Dictionary<string, object>> methodRefs,
+                Dictionary<int, Dictionary<string, object>> itemRefs)
+            {
+                int heldItemId = CsvInt(row, "held_item_id");
+                int tradeSpeciesId = CsvInt(row, "trade_species_id");
+                if (heldItemId > 0)
+                {
+                    return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 7, "携带道具通信进化", "Trade while holding item"), "item", heldItemId, RefOrFallback(itemRefs, heldItemId, "道具#" + heldItemId.ToString(CultureInfo.InvariantCulture)));
+                }
+                if (tradeSpeciesId > 0)
+                {
+                    return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 27, "与特定宝可梦通信交换进化", "Trade for a certain Pokemon"), "pokemon", tradeSpeciesId, null);
+                }
+                return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 2, "通信进化", "Trade"), "none", -1, null);
+            }
+
+            private static EvolutionDisplay BuildItemEvolutionDisplay(
+                Dictionary<string, string> row,
+                Dictionary<int, Dictionary<string, object>> methodRefs,
+                Dictionary<int, Dictionary<string, object>> itemRefs)
+            {
+                int itemId = CsvInt(row, "trigger_item_id");
+                int genderId = CsvInt(row, "gender_id");
+                string timeOfDay = CsvValue(row, "time_of_day");
+                int methodId = genderId == 2 ? 18 : (genderId == 1 ? 19 : 3);
+                Dictionary<string, object> itemRef = RefOrFallback(itemRefs, itemId, "道具#" + itemId.ToString(CultureInfo.InvariantCulture));
+                if (!string.IsNullOrWhiteSpace(timeOfDay))
+                {
+                    return new EvolutionDisplay(EvolutionMethodRef(methodRefs, methodId, "使用道具进化", "Use item"), "value", TimeText(timeOfDay) + "时使用" + NamedRefLabel(itemRef), null);
+                }
+                return new EvolutionDisplay(EvolutionMethodRef(methodRefs, methodId, "使用道具进化", "Use item"), "item", itemId, itemRef);
+            }
+
+            private static EvolutionDisplay BuildOtherEvolutionDisplay(Dictionary<string, string> row, Dictionary<int, Dictionary<string, object>> methodRefs)
+            {
+                int minimumLevel = CsvInt(row, "minimum_level");
+                return new EvolutionDisplay(EvolutionMethodRef(methodRefs, 54, "特殊条件进化", "Special condition evolution"), minimumLevel > 0 ? "level" : "none", minimumLevel > 0 ? (object)minimumLevel : -1, null);
+            }
+
+            private static EvolutionDisplay BuildUsedMoveEvolutionDisplay(
+                Dictionary<string, string> row,
+                Dictionary<int, Dictionary<string, object>> methodRefs,
+                Dictionary<int, Dictionary<string, object>> moveRefs,
+                int methodId,
+                string zhCN,
+                string en)
+            {
+                int moveId = CsvInt(row, "used_move_id");
+                if (moveId <= 0) moveId = CsvInt(row, "known_move_id");
+                int count = CsvInt(row, "minimum_move_count");
+                Dictionary<string, object> moveRef = RefOrFallback(moveRefs, moveId, "招式#" + moveId.ToString(CultureInfo.InvariantCulture));
+                string label = NamedRefLabel(moveRef);
+                if (count > 0)
+                {
+                    return new EvolutionDisplay(EvolutionMethodRef(methodRefs, methodId, zhCN, en), "value", "使用" + label + count.ToString(CultureInfo.InvariantCulture) + "次", null);
+                }
+                if (moveId > 0)
+                {
+                    return new EvolutionDisplay(EvolutionMethodRef(methodRefs, methodId, zhCN, en), "move", moveId, moveRef);
+                }
+                return new EvolutionDisplay(EvolutionMethodRef(methodRefs, methodId, zhCN, en), "none", -1, null);
+            }
+
+            private static string DamageCondition(Dictionary<string, string> row, string prefix, string suffix)
+            {
+                int damage = CsvInt(row, "minimum_damage_taken");
+                if (damage <= 0) return prefix + suffix;
+                return prefix + damage.ToString(CultureInfo.InvariantCulture) + suffix;
+            }
+
+            private static Dictionary<string, object> EvolutionMethodRef(Dictionary<int, Dictionary<string, object>> methodRefs, int id, string zhCN, string en)
+            {
+                Dictionary<string, object> refObject;
+                if (methodRefs.TryGetValue(id, out refObject)) return refObject;
+                return MakeNamedRef(id, zhCN, en);
+            }
+
+            private static Dictionary<string, object> RefOrFallback(Dictionary<int, Dictionary<string, object>> refs, int id, string fallback)
+            {
+                Dictionary<string, object> refObject;
+                if (id > 0 && refs.TryGetValue(id, out refObject)) return refObject;
+                return MakeNamedRef(id, fallback, fallback);
+            }
+
+            private static string NamedRefLabel(Dictionary<string, object> refObject)
+            {
+                if (refObject == null || !refObject.ContainsKey("names")) return "";
+                var objectNames = refObject["names"] as Dictionary<string, object>;
+                if (objectNames != null)
+                {
+                    object value;
+                    if (objectNames.TryGetValue("zhCN", out value) && value != null) return value.ToString();
+                    if (objectNames.TryGetValue("en", out value) && value != null) return value.ToString();
+                }
+                var stringNames = refObject["names"] as Dictionary<string, string>;
+                string text;
+                if (stringNames != null && stringNames.TryGetValue("zhCN", out text)) return text;
+                if (stringNames != null && stringNames.TryGetValue("en", out text)) return text;
+                return "";
+            }
+
+            private static string TimeText(string timeOfDay)
+            {
+                if (timeOfDay == "day") return "白天";
+                if (timeOfDay == "night") return "夜晚";
+                if (timeOfDay == "full-moon") return "满月";
+                return string.IsNullOrWhiteSpace(timeOfDay) ? "" : timeOfDay;
             }
 
             private static Dictionary<string, object> MoveCategoryRef(int damageClassId)
