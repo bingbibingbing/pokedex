@@ -1019,29 +1019,186 @@ namespace PodexDesktop
 
         private TabPage BuildPokemonFilterTab(PokemonEntry p)
         {
-            var page = MakeTabPage("筛选");
-            var stack = MakeTabStack();
-            page.Controls.Add(stack);
-            stack.Controls.Add(MakeFacts(new[]
+            var page = MakeTabPage("详细信息");
+            page.Padding = new Padding(4);
+
+            var scroll = new Panel
             {
-                Tuple.Create("世代", "第" + p.generation + "世代"),
-                Tuple.Create("分类", LocalName(p.speciesNames)),
-                Tuple.Create("形态", LocalName(p.formNames)),
-                Tuple.Create("属性", TypeText(p.types)),
-                Tuple.Create("特性", AbilityText(p.abilities)),
-                Tuple.Create("捕获度", ValueOrDash(p.captureRate)),
-                Tuple.Create("身高", p.measurements == null ? "--" : ValueOrDash(p.measurements.heightMetric) + " m"),
-                Tuple.Create("体重", p.measurements == null ? "--" : ValueOrDash(p.measurements.weightMetric) + " kg"),
-                Tuple.Create("性别比", p.genderRatio == null ? "--" : LocalName(p.genderRatio.names)),
-                Tuple.Create("蛋群", RefListText(p.eggGroups)),
-                Tuple.Create("孵化周期", p.breeding == null ? "--" : ValueOrDash(p.breeding.hatchCycles)),
-                Tuple.Create("初始亲密度", p.breeding == null ? "--" : ValueOrDash(p.breeding.baseTameness)),
-                Tuple.Create("基础经验", p.breeding == null ? "--" : ValueOrDash(p.breeding.exp)),
-                Tuple.Create("100级经验", p.breeding == null ? "--" : ValueOrDash(p.breeding.exp100))
-            }));
-            stack.Controls.Add(MakeSectionTitle("种族值"));
-            stack.Controls.Add(MakeStatsPanel(p.stats));
+                Dock = DockStyle.Fill,
+                AutoScroll = true,
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            scroll.HorizontalScroll.Enabled = false;
+            scroll.HorizontalScroll.Visible = false;
+
+            var content = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                ColumnCount = 1,
+                BackColor = Color.FromArgb(255, 250, 237),
+                Margin = new Padding(0)
+            };
+            content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            content.Controls.Add(MakeDetailedInfoSummary(p), 0, 0);
+            content.Controls.Add(MakeSectionTitle("种族值"), 0, 1);
+            content.Controls.Add(MakeStatsPanel(p.stats), 0, 2);
+
+            scroll.Controls.Add(content);
+            scroll.Resize += delegate
+            {
+                content.Width = Math.Max(260, scroll.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 2);
+            };
+            page.Controls.Add(scroll);
             return page;
+        }
+
+        private Control MakeDetailedInfoSummary(PokemonEntry p)
+        {
+            var table = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                ColumnCount = 2,
+                Margin = new Padding(0, 4, 0, 14),
+                Padding = new Padding(8),
+                BackColor = Color.FromArgb(244, 234, 216)
+            };
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 128));
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+            var imageStack = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
+                BackColor = Color.FromArgb(244, 234, 216),
+                Margin = new Padding(0, 0, 10, 0)
+            };
+
+            var picture = new PictureBox
+            {
+                Width = 96,
+                Height = 96,
+                BorderStyle = BorderStyle.FixedSingle,
+                SizeMode = PictureBoxSizeMode.CenterImage,
+                BackColor = Color.White,
+                Margin = new Padding(0, 0, 0, 8)
+            };
+            string imagePath = PokemonImagePath(p.legacyId, true);
+            if (!string.IsNullOrWhiteSpace(imagePath) && File.Exists(imagePath))
+            {
+                using (Image image = Image.FromFile(imagePath))
+                {
+                    picture.Image = new Bitmap(image);
+                }
+            }
+            imageStack.Controls.Add(picture);
+
+            var smallPicture = new PictureBox
+            {
+                Width = 36,
+                Height = 28,
+                SizeMode = PictureBoxSizeMode.CenterImage,
+                BackColor = Color.FromArgb(255, 250, 237),
+                Margin = new Padding(30, 0, 0, 0)
+            };
+            smallPicture.Image = LoadPokemonSmallCellImage(p.legacyId);
+            imageStack.Controls.Add(smallPicture);
+
+            var facts = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                ColumnCount = 2,
+                BackColor = Color.FromArgb(244, 234, 216),
+                Margin = new Padding(0)
+            };
+            facts.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 76));
+            facts.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+            int row = 0;
+            AddDetailInfoRow(facts, row++, "名字", LocalName(p.names));
+            AddDetailInfoRow(facts, row++, "样子", LocalName(p.formNames));
+            AddDetailInfoRow(facts, row++, "分类", LocalName(p.speciesNames));
+            AddDetailInfoControlRow(facts, row++, "属性", MakeTypeBadgeRow(p.types));
+            AddDetailInfoRow(facts, row++, "性别比", p.genderRatio == null ? "--" : LocalName(p.genderRatio.names));
+            AddDetailInfoRow(facts, row++, "身高", p.measurements == null ? "--" : ValueOrDash(p.measurements.heightMetric) + " m");
+            AddDetailInfoRow(facts, row++, "体重", p.measurements == null ? "--" : ValueOrDash(p.measurements.weightMetric) + " kg");
+            AddDetailInfoRow(facts, row++, "捕获度", ValueOrDash(p.captureRate));
+            AddDetailInfoRow(facts, row++, "孵化周期", p.breeding == null ? "--" : ValueOrDash(p.breeding.hatchCycles));
+            AddDetailInfoRow(facts, row++, "蛋群", RefListText(p.eggGroups));
+            AddDetailInfoRow(facts, row++, "特性", AbilityText(p.abilities));
+
+            table.Controls.Add(imageStack, 0, 0);
+            table.Controls.Add(facts, 1, 0);
+            return table;
+        }
+
+        private static void AddDetailInfoRow(TableLayoutPanel table, int row, string label, string value)
+        {
+            AddDetailInfoControlRow(table, row, label, new Label
+            {
+                Text = string.IsNullOrWhiteSpace(value) ? "--" : value,
+                Dock = DockStyle.Fill,
+                AutoEllipsis = true,
+                ForeColor = Color.FromArgb(0, 0, 180),
+                Font = new Font("Segoe UI", 9f),
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = new Padding(0)
+            });
+        }
+
+        private static void AddDetailInfoControlRow(TableLayoutPanel table, int row, string label, Control valueControl)
+        {
+            table.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+            table.Controls.Add(new Label
+            {
+                Text = label,
+                Dock = DockStyle.Fill,
+                ForeColor = Color.FromArgb(23, 32, 27),
+                Font = new Font("Segoe UI", 9f),
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = new Padding(0)
+            }, 0, row);
+            valueControl.Dock = DockStyle.Fill;
+            valueControl.Margin = new Padding(0);
+            table.Controls.Add(valueControl, 1, row);
+        }
+
+        private static Control MakeTypeBadgeRow(List<TypeRef> types)
+        {
+            var panel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                BackColor = Color.FromArgb(244, 234, 216),
+                Margin = new Padding(0)
+            };
+
+            if (types == null || types.Count == 0)
+            {
+                panel.Controls.Add(new Label { Text = "--", AutoSize = true, Margin = new Padding(0, 3, 0, 0) });
+                return panel;
+            }
+
+            foreach (var type in types)
+            {
+                panel.Controls.Add(new Label
+                {
+                    Text = LocalName(type.names),
+                    AutoSize = false,
+                    Width = 44,
+                    Height = 18,
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    BackColor = TypeColor(type.id),
+                    ForeColor = Color.White,
+                    Font = new Font("Segoe UI", 8f, FontStyle.Bold),
+                    Margin = new Padding(0, 2, 4, 0)
+                });
+            }
+            return panel;
         }
 
         private TabPage BuildPokemonMoveFilterTab(PokemonEntry p)
@@ -1539,13 +1696,13 @@ namespace PodexDesktop
 
             for (int col = 0; col < 6; col++)
             {
-                table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 32));
-                table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
+                table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 30));
+                table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 30));
             }
 
             for (int row = 0; row < 3; row++)
             {
-                table.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+                table.RowStyles.Add(new RowStyle(SizeType.Absolute, 25));
             }
 
             var types = root.types.OrderBy(t => t.id).ToList();
@@ -1575,7 +1732,7 @@ namespace PodexDesktop
                     BackColor = MultiplierColor(multiplier),
                     ForeColor = Color.Black,
                     Font = new Font("Segoe UI", 8f, FontStyle.Bold),
-                    Margin = new Padding(0, 0, 4, 1)
+                    Margin = new Padding(0, 0, 2, 1)
                 }, pair * 2 + 1, row);
             }
 
@@ -2865,10 +3022,17 @@ namespace PodexDesktop
             {
                 return MakeBodyLabel("没有种族值数据。");
             }
-            var panel = new TableLayoutPanel { AutoSize = true, ColumnCount = 3, Width = 650 };
+            var panel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = false,
+                Height = 230,
+                ColumnCount = 3,
+                Margin = new Padding(0, 0, 0, 8)
+            };
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 70));
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 58));
-            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 500));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             AddStat(panel, 0, "HP", stats.hp, 255);
             AddStat(panel, 1, "ATK", stats.attack, 255);
             AddStat(panel, 2, "DEF", stats.defense, 255);
