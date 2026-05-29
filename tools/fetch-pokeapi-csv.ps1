@@ -34,6 +34,7 @@ $Files = @(
   "item_names.csv",
   "item_prose.csv",
   "item_game_indices.csv",
+  "machines.csv",
   "evolution_chains.csv",
   "pokemon_evolution.csv"
 )

@@ -1263,7 +1263,9 @@ namespace PodexDesktop
 
         private static bool IsMoveMachineLevel(int levelId)
         {
-            return levelId >= 101 && levelId <= 200;
+            return (levelId >= 101 && levelId <= 200) ||
+                levelId == 306 ||
+                (levelId >= 400 && levelId <= 999);
         }
 
         private static bool IsHiddenMachineLevel(int levelId)
@@ -5068,7 +5070,8 @@ namespace PodexDesktop
         private static int LearnLevelSort(int levelId)
         {
             if (levelId <= 100) return levelId;
-            if (levelId >= 101 && levelId <= 200) return 1000 + levelId;
+            if (IsMoveMachineLevel(levelId)) return 1000 + levelId;
+            if (IsHiddenMachineLevel(levelId)) return 1500 + levelId;
             return 2000 + levelId;
         }
 
@@ -5078,7 +5081,7 @@ namespace PodexDesktop
             if (levelId == 302) return "教学";
             if (levelId == 303) return "进化前";
             if (levelId == 305) return "活动";
-            if (levelId >= 101 && levelId <= 200) return "招式机";
+            if (IsMoveMachineLevel(levelId)) return "招式机";
             if (levelId >= 201 && levelId <= 250) return "秘传机";
             if (levelId <= 100) return "升级";
             return "其他";

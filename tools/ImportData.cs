@@ -35,6 +35,7 @@ namespace PodexTools
             "item_names.csv",
             "item_prose.csv",
             "item_game_indices.csv",
+            "machines.csv",
             "evolution_chains.csv",
             "pokemon_evolution.csv"
         };
@@ -964,6 +965,9 @@ namespace PodexTools
                 List<object> abilities = RawList(raw, "abilities");
                 List<object> items = RawList(raw, "items");
                 List<object> evolutions = RawList(raw, "evolutions");
+                List<object> games = RawList(raw, "games");
+                List<object> levels = RawList(raw, "levels");
+                List<object> learnsets = RawList(raw, "learnsets");
 
                 int maxPokemonDex = MaxRawId(pokemon, "nationalDex");
                 int maxMoveId = MaxRawId(moves, "id");
@@ -979,6 +983,8 @@ namespace PodexTools
                 CsvTable pokemonAbilities = CsvTable.Load(Path.Combine(options.SourcePath, "pokemon_abilities.csv"));
                 CsvTable pokemonEggGroups = CsvTable.Load(Path.Combine(options.SourcePath, "pokemon_egg_groups.csv"));
                 CsvTable pokemonEvolutions = CsvTable.Load(Path.Combine(options.SourcePath, "pokemon_evolution.csv"));
+                CsvTable pokemonMoves = CsvTable.Load(Path.Combine(options.SourcePath, "pokemon_moves.csv"));
+                CsvTable versionGroups = CsvTable.Load(Path.Combine(options.SourcePath, "version_groups.csv"));
                 CsvTable sourceMoves = CsvTable.Load(Path.Combine(options.SourcePath, "moves.csv"));
                 CsvTable moveNames = CsvTable.Load(Path.Combine(options.SourcePath, "move_names.csv"));
                 CsvTable moveEffects = CsvTable.Load(Path.Combine(options.SourcePath, "move_effect_prose.csv"));
@@ -989,6 +995,7 @@ namespace PodexTools
                 CsvTable itemNames = CsvTable.Load(Path.Combine(options.SourcePath, "item_names.csv"));
                 CsvTable itemProse = CsvTable.Load(Path.Combine(options.SourcePath, "item_prose.csv"));
                 CsvTable itemGameIndices = CsvTable.Load(Path.Combine(options.SourcePath, "item_game_indices.csv"));
+                CsvTable machines = CsvTable.Load(Path.Combine(options.SourcePath, "machines.csv"));
 
                 Dictionary<int, Dictionary<string, string>> pokemonNameMap = BuildLocalizedTextMap(pokemonSpeciesNames, "pokemon_species_id", "name");
                 Dictionary<int, Dictionary<string, string>> pokemonGenusMap = BuildLocalizedTextMap(pokemonSpeciesNames, "pokemon_species_id", "genus");
@@ -1019,6 +1026,9 @@ namespace PodexTools
                 Dictionary<int, List<Dictionary<string, string>>> abilityRowsByPokemon = BuildRowsByInt(pokemonAbilities, "pokemon_id");
                 Dictionary<int, List<Dictionary<string, string>>> eggGroupRowsBySpecies = BuildRowsByInt(pokemonEggGroups, "species_id");
                 Dictionary<int, List<Dictionary<string, string>>> evolutionRowsBySpecies = BuildRowsByInt(pokemonEvolutions, "evolved_species_id");
+                Dictionary<int, int> versionGroupGameIds = BuildVersionGroupGameIds(versionGroups);
+                Dictionary<string, int> machineLevelIds = BuildMachineLevelIds(machines, sourceItems);
+                var newPokemonIdToLocalId = new Dictionary<int, int>();
 
                 int addedPokemon = 0;
                 int skippedPokemon = 0;
@@ -1042,6 +1052,7 @@ namespace PodexTools
                     }
                     pokemon.Add(BuildPokemon(row, speciesRow, pokemonNameMap, pokemonGenusMap, pokemonFlavorMap, pokemonDescriptionOverrides, typeRowsByPokemon, statRowsByPokemon, abilityRowsByPokemon, eggGroupRowsBySpecies, typeRefs, abilityRefs, eggGroupRefs, genderRatioRefs, singleTypeDefense));
                     evolutions.Add(BuildPokemonEvolution(row, speciesRow, speciesRows, evolutionRowsBySpecies, evolutionMethodRefs, evolutionStageRefs, itemRefs, moveRefs));
+                    newPokemonIdToLocalId[pokemonId] = speciesId;
                     addedPokemon++;
                 }
 
@@ -1125,13 +1136,23 @@ namespace PodexTools
                     addedItems++;
                 }
 
+                var usedVersionGroups = new HashSet<int>();
+                var usedLevelIds = new HashSet<int>();
+                int skippedLearnsets = 0;
+                int addedLearnsets = AddPreviewLearnsets(learnsets, pokemonMoves, newPokemonIdToLocalId, moves, versionGroupGameIds, machineLevelIds, usedVersionGroups, usedLevelIds, ref skippedLearnsets);
+                int addedGames = EnsurePreviewGames(games, usedVersionGroups, versionGroupGameIds);
+                int addedLevels = EnsurePreviewLevels(levels, usedLevelIds);
+
                 raw["pokemon"] = pokemon;
                 raw["evolutions"] = evolutions;
                 raw["moves"] = moves;
                 raw["abilities"] = abilities;
                 raw["items"] = items;
+                raw["games"] = games;
+                raw["levels"] = levels;
+                raw["learnsets"] = learnsets;
                 UpdateEvolutionStageMax(evolutions);
-                UpdateMetaCounts(raw, pokemon.Count, MaxRawId(pokemon, "nationalDex"), moves.Count, abilities.Count, items.Count, evolutions.Count);
+                UpdateMetaCounts(raw, pokemon.Count, MaxRawId(pokemon, "nationalDex"), moves.Count, abilities.Count, items.Count, evolutions.Count, learnsets.Count);
 
                 string outputDirectory = Path.GetDirectoryName(Path.GetFullPath(options.PreviewDataPath));
                 if (!string.IsNullOrWhiteSpace(outputDirectory))
@@ -1144,6 +1165,10 @@ namespace PodexTools
                 report.PreviewSummary["Added Pokemon"] = addedPokemon.ToString();
                 report.PreviewSummary["Skipped incomplete Pokemon"] = skippedPokemon.ToString();
                 report.PreviewSummary["Skipped Pokemon missing Chinese"] = skippedPokemonMissingChinese.ToString();
+                report.PreviewSummary["Added games"] = addedGames.ToString();
+                report.PreviewSummary["Added levels"] = addedLevels.ToString();
+                report.PreviewSummary["Added learnsets"] = addedLearnsets.ToString();
+                report.PreviewSummary["Skipped learnsets"] = skippedLearnsets.ToString();
                 report.PreviewSummary["Added moves"] = addedMoves.ToString();
                 report.PreviewSummary["Skipped non-mainline/incomplete moves"] = skippedMoves.ToString();
                 report.PreviewSummary["Skipped moves missing Chinese"] = skippedMovesMissingChinese.ToString();
@@ -1161,6 +1186,8 @@ namespace PodexTools
                 report.PreviewSummary["Preview abilities total"] = abilities.Count.ToString();
                 report.PreviewSummary["Preview items total"] = items.Count.ToString();
                 report.PreviewSummary["Preview Pokemon total"] = pokemon.Count.ToString();
+                report.PreviewSummary["Preview games total"] = games.Count.ToString();
+                report.PreviewSummary["Preview learnsets total"] = learnsets.Count.ToString();
             }
 
             private static Dictionary<string, object> BuildMove(
@@ -1607,6 +1634,316 @@ namespace PodexTools
                         result.Add(id, rows);
                     }
                     rows.Add(row);
+                }
+                return result;
+            }
+
+            private static Dictionary<int, int> BuildVersionGroupGameIds(CsvTable versionGroups)
+            {
+                var available = new HashSet<int>();
+                foreach (Dictionary<string, string> row in versionGroups.Rows)
+                {
+                    int versionGroupId = CsvInt(row, "id");
+                    if (versionGroupId > 0) available.Add(versionGroupId);
+                }
+
+                var result = new Dictionary<int, int>();
+                AddVersionGroupGameId(result, available, 19, 30);
+                AddVersionGroupGameId(result, available, 20, 31);
+                AddVersionGroupGameId(result, available, 21, 32);
+                AddVersionGroupGameId(result, available, 22, 33);
+                AddVersionGroupGameId(result, available, 23, 34);
+                AddVersionGroupGameId(result, available, 24, 35);
+                AddVersionGroupGameId(result, available, 25, 36);
+                AddVersionGroupGameId(result, available, 26, 37);
+                AddVersionGroupGameId(result, available, 27, 38);
+                return result;
+            }
+
+            private static void AddVersionGroupGameId(Dictionary<int, int> result, HashSet<int> available, int versionGroupId, int gameId)
+            {
+                if (available.Contains(versionGroupId)) result[versionGroupId] = gameId;
+            }
+
+            private static Dictionary<string, int> BuildMachineLevelIds(CsvTable machines, CsvTable items)
+            {
+                var itemIdentifiers = BuildItemIdentifierMap(items);
+                var result = new Dictionary<string, int>();
+                foreach (Dictionary<string, string> row in machines.Rows)
+                {
+                    int versionGroupId = CsvInt(row, "version_group_id");
+                    int moveId = CsvInt(row, "move_id");
+                    int itemId = CsvInt(row, "item_id");
+                    if (versionGroupId <= 0 || moveId <= 0 || itemId <= 0) continue;
+
+                    string identifier;
+                    int levelId;
+                    if (!itemIdentifiers.TryGetValue(itemId, out identifier) || !TryMachineLevelId(identifier, out levelId)) continue;
+
+                    string key = MachineKey(versionGroupId, moveId);
+                    if (!result.ContainsKey(key)) result.Add(key, levelId);
+                }
+                return result;
+            }
+
+            private static Dictionary<int, string> BuildItemIdentifierMap(CsvTable items)
+            {
+                var result = new Dictionary<int, string>();
+                foreach (Dictionary<string, string> row in items.Rows)
+                {
+                    int itemId = CsvInt(row, "id");
+                    string identifier = CsvValue(row, "identifier");
+                    if (itemId > 0 && !string.IsNullOrWhiteSpace(identifier) && !result.ContainsKey(itemId))
+                    {
+                        result.Add(itemId, identifier);
+                    }
+                }
+                return result;
+            }
+
+            private static bool TryMachineLevelId(string itemIdentifier, out int levelId)
+            {
+                levelId = 0;
+                int machineNumber;
+                if (itemIdentifier.StartsWith("tm", StringComparison.OrdinalIgnoreCase) && TryParseMachineNumber(itemIdentifier, 2, out machineNumber))
+                {
+                    levelId = TechnicalMachineLevelId(machineNumber);
+                    return levelId > 0;
+                }
+                if (itemIdentifier.StartsWith("tr", StringComparison.OrdinalIgnoreCase) && TryParseMachineNumber(itemIdentifier, 2, out machineNumber))
+                {
+                    levelId = TechnicalRecordLevelId(machineNumber);
+                    return levelId > 0;
+                }
+                if (itemIdentifier.StartsWith("hm", StringComparison.OrdinalIgnoreCase) && TryParseMachineNumber(itemIdentifier, 2, out machineNumber))
+                {
+                    levelId = HiddenMachineLevelId(machineNumber);
+                    return levelId > 0;
+                }
+                return false;
+            }
+
+            private static bool TryParseMachineNumber(string itemIdentifier, int prefixLength, out int machineNumber)
+            {
+                machineNumber = 0;
+                if (itemIdentifier.Length <= prefixLength) return false;
+                return int.TryParse(itemIdentifier.Substring(prefixLength), NumberStyles.Integer, CultureInfo.InvariantCulture, out machineNumber);
+            }
+
+            private static int TechnicalMachineLevelId(int machineNumber)
+            {
+                if (machineNumber == 0) return 500;
+                if (machineNumber > 0 && machineNumber <= 100) return 100 + machineNumber;
+                if (machineNumber > 100 && machineNumber <= 499) return 500 + machineNumber;
+                return 0;
+            }
+
+            private static int TechnicalRecordLevelId(int machineNumber)
+            {
+                return machineNumber >= 0 && machineNumber <= 99 ? 400 + machineNumber : 0;
+            }
+
+            private static int HiddenMachineLevelId(int machineNumber)
+            {
+                return machineNumber > 0 && machineNumber <= 50 ? 200 + machineNumber : 0;
+            }
+
+            private static int AddPreviewLearnsets(
+                List<object> learnsets,
+                CsvTable pokemonMoves,
+                Dictionary<int, int> pokemonIdToLocalId,
+                List<object> moves,
+                Dictionary<int, int> versionGroupGameIds,
+                Dictionary<string, int> machineLevelIds,
+                HashSet<int> usedVersionGroups,
+                HashSet<int> usedLevelIds,
+                ref int skippedLearnsets)
+            {
+                HashSet<int> moveIds = BuildRawIdSet(moves, "id");
+                var existing = new HashSet<string>();
+                foreach (object value in learnsets)
+                {
+                    var row = value as Dictionary<string, object>;
+                    if (row == null) continue;
+                    int pokemonId = ObjectInt(row.ContainsKey("pokemonId") ? row["pokemonId"] : null);
+                    int gameId = ObjectInt(row.ContainsKey("gameId") ? row["gameId"] : null);
+                    int levelId = ObjectInt(row.ContainsKey("levelId") ? row["levelId"] : null);
+                    int moveId = ObjectInt(row.ContainsKey("moveId") ? row["moveId"] : null);
+                    if (pokemonId > 0 && gameId > 0 && levelId > 0 && moveId > 0) existing.Add(LearnsetKey(pokemonId, gameId, levelId, moveId));
+                }
+
+                int added = 0;
+                foreach (Dictionary<string, string> row in pokemonMoves.Rows
+                    .OrderBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "pokemon_id"); })
+                    .ThenBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "version_group_id"); })
+                    .ThenBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "pokemon_move_method_id"); })
+                    .ThenBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "level"); })
+                    .ThenBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "move_id"); }))
+                {
+                    int sourcePokemonId = CsvInt(row, "pokemon_id");
+                    int pokemonId;
+                    if (!pokemonIdToLocalId.TryGetValue(sourcePokemonId, out pokemonId)) continue;
+
+                    int versionGroupId = CsvInt(row, "version_group_id");
+                    int gameId;
+                    if (!versionGroupGameIds.TryGetValue(versionGroupId, out gameId))
+                    {
+                        skippedLearnsets++;
+                        continue;
+                    }
+
+                    int moveId = CsvInt(row, "move_id");
+                    if (!moveIds.Contains(moveId))
+                    {
+                        skippedLearnsets++;
+                        continue;
+                    }
+
+                    int methodId = CsvInt(row, "pokemon_move_method_id");
+                    int levelId = LearnsetLevelId(methodId, CsvInt(row, "level"), versionGroupId, moveId, machineLevelIds);
+                    if (levelId <= 0)
+                    {
+                        skippedLearnsets++;
+                        continue;
+                    }
+
+                    string key = LearnsetKey(pokemonId, gameId, levelId, moveId);
+                    if (existing.Contains(key)) continue;
+
+                    learnsets.Add(new Dictionary<string, object>
+                    {
+                        { "pokemonId", pokemonId },
+                        { "gameId", gameId },
+                        { "levelId", levelId },
+                        { "moveId", moveId }
+                    });
+                    existing.Add(key);
+                    usedVersionGroups.Add(versionGroupId);
+                    usedLevelIds.Add(levelId);
+                    added++;
+                }
+
+                return added;
+            }
+
+            private static int LearnsetLevelId(int methodId, int level, int versionGroupId, int moveId, Dictionary<string, int> machineLevelIds)
+            {
+                switch (methodId)
+                {
+                    case 1: return level > 0 ? level : 1;
+                    case 2: return 301;
+                    case 3: return 302;
+                    case 4:
+                        int machineLevelId;
+                        return machineLevelIds.TryGetValue(MachineKey(versionGroupId, moveId), out machineLevelId) ? machineLevelId : 306;
+                    default: return 0;
+                }
+            }
+
+            private static int EnsurePreviewGames(List<object> games, HashSet<int> usedVersionGroups, Dictionary<int, int> versionGroupGameIds)
+            {
+                HashSet<int> existingIds = BuildRawIdSet(games, "id");
+                int added = 0;
+                foreach (int versionGroupId in usedVersionGroups.OrderBy(delegate(int id) { return versionGroupGameIds.ContainsKey(id) ? versionGroupGameIds[id] : id; }))
+                {
+                    int gameId;
+                    if (!versionGroupGameIds.TryGetValue(versionGroupId, out gameId) || existingIds.Contains(gameId)) continue;
+                    games.Add(BuildPreviewGame(versionGroupId, gameId));
+                    existingIds.Add(gameId);
+                    added++;
+                }
+                return added;
+            }
+
+            private static int EnsurePreviewLevels(List<object> levels, HashSet<int> usedLevelIds)
+            {
+                HashSet<int> existingIds = BuildRawIdSet(levels, "id");
+                int added = 0;
+                foreach (int levelId in usedLevelIds.OrderBy(delegate(int id) { return id; }))
+                {
+                    if (existingIds.Contains(levelId)) continue;
+                    levels.Add(BuildPreviewLevel(levelId));
+                    existingIds.Add(levelId);
+                    added++;
+                }
+                return added;
+            }
+
+            private static Dictionary<string, object> BuildPreviewGame(int versionGroupId, int gameId)
+            {
+                switch (versionGroupId)
+                {
+                    case 19: return MakeNamedRef(gameId, "Let's Go! 皮卡丘／Let's Go! 伊布", "Let's Go! 皮卡丘／Let's Go! 伊布", "Let's Go Pikachu/Let's Go Eevee");
+                    case 20: return MakeNamedRef(gameId, "剑／盾", "劍／盾", "Sword/Shield");
+                    case 21: return MakeNamedRef(gameId, "铠之孤岛", "鎧之孤島", "The Isle of Armor");
+                    case 22: return MakeNamedRef(gameId, "冠之雪原", "冠之雪原", "The Crown Tundra");
+                    case 23: return MakeNamedRef(gameId, "晶灿钻石／明亮珍珠", "晶燦鑽石／明亮珍珠", "Brilliant Diamond/Shining Pearl");
+                    case 24: return MakeNamedRef(gameId, "传说 阿尔宙斯", "傳說 阿爾宙斯", "Legends Arceus");
+                    case 25: return MakeNamedRef(gameId, "朱／紫", "朱／紫", "Scarlet/Violet");
+                    case 26: return MakeNamedRef(gameId, "碧之假面", "碧之假面", "The Teal Mask");
+                    case 27: return MakeNamedRef(gameId, "蓝之圆盘", "藍之圓盤", "The Indigo Disk");
+                    default: return MakeNamedRef(gameId, "版本组" + versionGroupId.ToString(CultureInfo.InvariantCulture), "版本組" + versionGroupId.ToString(CultureInfo.InvariantCulture), "Version group " + versionGroupId.ToString(CultureInfo.InvariantCulture));
+                }
+            }
+
+            private static Dictionary<string, object> BuildPreviewLevel(int levelId)
+            {
+                if (levelId == 306) return MakeNamedRef(levelId, "招式学习器", "招式學習器", "Move Machine");
+                if (levelId >= 400 && levelId <= 499)
+                {
+                    int number = levelId - 400;
+                    string label = MachineNumberText(number);
+                    return MakeNamedRef(levelId, "招式记录" + label, "招式記錄" + label, "TR" + label);
+                }
+                if (levelId == 500) return MakeNamedRef(levelId, "招式00", "招式00", "TM00");
+                if (levelId >= 601 && levelId <= 999)
+                {
+                    int number = levelId - 500;
+                    string label = MachineNumberText(number);
+                    return MakeNamedRef(levelId, "招式" + label, "招式" + label, "TM" + label);
+                }
+                if (levelId >= 101 && levelId <= 200)
+                {
+                    int number = levelId - 100;
+                    string label = MachineNumberText(number);
+                    return MakeNamedRef(levelId, "招式" + label, "招式" + label, "TM" + label);
+                }
+                if (levelId >= 201 && levelId <= 250)
+                {
+                    int number = levelId - 200;
+                    string label = MachineNumberText(number);
+                    return MakeNamedRef(levelId, "秘传" + label, "秘傳" + label, "HM" + label);
+                }
+                return MakeNamedRef(levelId, "其他", "其他", "Other");
+            }
+
+            private static string MachineNumberText(int number)
+            {
+                return number >= 0 && number < 100 ? number.ToString("00", CultureInfo.InvariantCulture) : number.ToString(CultureInfo.InvariantCulture);
+            }
+
+            private static string MachineKey(int versionGroupId, int moveId)
+            {
+                return versionGroupId.ToString(CultureInfo.InvariantCulture) + "|" + moveId.ToString(CultureInfo.InvariantCulture);
+            }
+
+            private static string LearnsetKey(int pokemonId, int gameId, int levelId, int moveId)
+            {
+                return pokemonId.ToString(CultureInfo.InvariantCulture) + "|" +
+                    gameId.ToString(CultureInfo.InvariantCulture) + "|" +
+                    levelId.ToString(CultureInfo.InvariantCulture) + "|" +
+                    moveId.ToString(CultureInfo.InvariantCulture);
+            }
+
+            private static HashSet<int> BuildRawIdSet(List<object> rows, string key)
+            {
+                var result = new HashSet<int>();
+                foreach (object value in rows)
+                {
+                    var row = value as Dictionary<string, object>;
+                    if (row == null || !row.ContainsKey(key)) continue;
+                    int id = ObjectInt(row[key]);
+                    if (id > 0) result.Add(id);
                 }
                 return result;
             }
@@ -2076,10 +2413,15 @@ namespace PodexTools
 
             private static Dictionary<string, object> MakeNamedRef(int id, string zhCN, string en)
             {
+                return MakeNamedRef(id, zhCN, zhCN, en);
+            }
+
+            private static Dictionary<string, object> MakeNamedRef(int id, string zhCN, string zhTW, string en)
+            {
                 var names = new Dictionary<string, object>();
                 names["en"] = en;
                 names["zhCN"] = zhCN;
-                names["zhTW"] = zhCN;
+                names["zhTW"] = zhTW;
                 var result = new Dictionary<string, object>();
                 result["id"] = id;
                 result["names"] = names;
@@ -2361,7 +2703,7 @@ namespace PodexTools
                 return row.TryGetValue(column, out value) ? value : "";
             }
 
-            private static void UpdateMetaCounts(Dictionary<string, object> root, int pokemon, int maxNationalDex, int moves, int abilities, int items, int evolutions)
+            private static void UpdateMetaCounts(Dictionary<string, object> root, int pokemon, int maxNationalDex, int moves, int abilities, int items, int evolutions, int learnsets)
             {
                 Dictionary<string, object> meta = root.ContainsKey("meta") ? root["meta"] as Dictionary<string, object> : null;
                 if (meta == null) return;
@@ -2374,6 +2716,7 @@ namespace PodexTools
                 counts["abilities"] = abilities;
                 counts["items"] = items;
                 counts["evolutions"] = evolutions;
+                counts["learnsets"] = learnsets;
             }
         }
 
