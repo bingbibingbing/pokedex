@@ -110,7 +110,8 @@ function Find-WikiTitle {
     [string]$Entity,
     [string]$ChineseName,
     [string]$EnglishName,
-    [string]$Identifier
+    [string]$Identifier,
+    [int]$SourceId = 0
   )
   $suffix = Get-EntitySuffix $Entity
   if ([string]::IsNullOrWhiteSpace($suffix)) {
@@ -122,7 +123,7 @@ function Find-WikiTitle {
     foreach ($directTitle in $directTitles) {
       try {
         $content = Get-WikiText $directTitle
-        if (-not [string]::IsNullOrWhiteSpace($content)) {
+        if (Test-WikiPageMatch $Entity $content $ChineseName $EnglishName $SourceId) {
           return [pscustomobject]@{
             Title = $directTitle
             Snippet = ""
@@ -154,7 +155,15 @@ function Find-WikiTitle {
       format = "json"
     }
     foreach ($hit in @($result.query.search)) {
-      if ($hit.title -like "*$suffix") {
+      if ($hit.title -like "*$suffix" -or $Entity -eq "move") {
+        try {
+          $content = Get-WikiText $hit.title
+        } catch {
+          continue
+        }
+        if (-not (Test-WikiPageMatch $Entity $content $ChineseName $EnglishName $SourceId)) {
+          continue
+        }
         return [pscustomobject]@{
           Title = $hit.title
           Snippet = $hit.snippet
@@ -171,7 +180,8 @@ function Test-WikiPageMatch {
     [string]$Entity,
     [string]$Content,
     [string]$ChineseName,
-    [string]$EnglishName
+    [string]$EnglishName,
+    [int]$SourceId = 0
   )
   if ([string]::IsNullOrWhiteSpace($Content)) {
     return $false
@@ -185,6 +195,16 @@ function Test-WikiPageMatch {
   }
   if ($Entity -eq "item" -and $Content -notmatch "\{\{道具信息框") {
     return $false
+  }
+
+  if ($Entity -eq "move" -and $SourceId -gt 0) {
+    $pageSourceId = Get-InfoboxField $Content @("n")
+    $parsedSourceId = 0
+    if (-not [string]::IsNullOrWhiteSpace($pageSourceId) -and
+        [int]::TryParse($pageSourceId, [ref]$parsedSourceId) -and
+        $parsedSourceId -ne $SourceId) {
+      return $false
+    }
   }
 
   $pageEnglishName = Get-InfoboxField $Content @("enname")
@@ -256,7 +276,9 @@ function Convert-WikiTextToPlain {
   $value = [regex]::Replace($value, "\{\{招式效果/能力降低\|([^|}]+)\|([^|}]+)\|\|([^|}]+)\}\}", '使$3的$1降低$2级。')
   $value = [regex]::Replace($value, "\{\{招式效果/能力降低\|([^|}]+)\|([^|}]+)\}\}", '使目标的$1降低$2级。')
   $value = [regex]::Replace($value, "\{\{招式效果/能力降低\|([^|}]+)\}\}", '使目标的$1降低1级。')
+  $value = [regex]::Replace($value, "\{\{招式效果/能力提升\|([^|}]+)\|([^|}]+)\|\|([^|}]+)\}\}", '使$3的$1提高$2级。')
   $value = [regex]::Replace($value, "\{\{招式效果/能力提升\|([^|}]+)\|([^|}]+)\}\}", '使使用者的$1提高$2级。')
+  $value = [regex]::Replace($value, "\{\{招式效果/天气影响\|([^|}]+)\|([^|}]+)\}\}", '攻击目标造成伤害。使天气变为$1。携带$2时持续时间延长。')
   $value = [regex]::Replace($value, "\{\{招式效果/保护\|([^|}]+)\}\}", "进入守住状态。")
   $value = [regex]::Replace($value, "\{\{招式效果/反作用力伤害\|([^|}]+)\}\}", '使用者承受对目标造成伤害1/$1的反作用力伤害。')
   $value = [regex]::Replace($value, "\{\{招式效果/固定伤害\|最大ＨＰ的\{\{frac\|1\|2\}\}（向上取整）\|使用者\}\}", '使用者失去最大ＨＰ的1/2（向上取整）。')
@@ -267,6 +289,7 @@ function Convert-WikiTextToPlain {
   $value = [regex]::Replace($value, "\{\{招式效果/多种异常\|([^|}]+)\|([^|}]+)\|([^|}]+)\|([^|}]+)\}\}", '有$1%的几率使目标陷入$2状态、$3状态或$4状态。')
   $value = [System.Net.WebUtility]::HtmlDecode($value)
   $value = [regex]::Replace($value, "\{\{type\|([^}|]+)\}\}", '$1属性')
+  $value = [regex]::Replace($value, "\{\{m\|([^}|]+)\}\}", '$1')
   $value = [regex]::Replace($value, "\{\{s\|([^}|]+)\}\}", '$1')
   $value = [regex]::Replace($value, "\{\{stat\|([^}|]+)\}\}", '$1')
   $value = [regex]::Replace($value, "\{\{a\|([^}|]+)\}\}", '$1')
@@ -279,6 +302,8 @@ function Convert-WikiTextToPlain {
   $value = [regex]::Replace($value, "(?m)^\s*[*#:;]+\s*", "")
   $value = [regex]::Replace($value, "(?m)^\s*[\{\}\|!].*$", "")
   $value = [regex]::Replace($value, "\s+", " ")
+  $value = [regex]::Replace($value, "\s+([。！？；，])", '$1')
+  $value = [regex]::Replace($value, "([。！？；，])\s+", '$1')
   return $value.Trim()
 }
 
@@ -307,6 +332,7 @@ function Convert-TraditionalTerms {
     "變為" = "变为"
     "變化" = "变化"
     "變" = "变"
+    "轉" = "转"
     "防禦" = "防御"
     "出現" = "出现"
     "龍" = "龙"
@@ -319,6 +345,14 @@ function Convert-TraditionalTerms {
     "請見" = "请见"
     "攜帶" = "携带"
     "攜" = "携"
+    "電氣" = "电气"
+    "電" = "电"
+    "氣" = "气"
+    "鋼" = "钢"
+    "蟲" = "虫"
+    "飛" = "飞"
+    "惡" = "恶"
+    "霧" = "雾"
     "無" = "无"
     "與" = "与"
     "並" = "并"
@@ -377,7 +411,7 @@ function Test-TextQuality {
   if ($Text -match "<[^>]+>|&[a-zA-Z#0-9]+;|\{\{|\}\}|\[\[|\]\]") {
     return $false
   }
-  if ($Text -match "[對連寶會場號屬狀態變體檔擊兩現龍劍類擁個遊戲請見攜無與並為傷觸禦極噴發滿時換雙將讓處異級敵標優來學擲幣獲這該傳給後]") {
+  if ($Text -match "[對連寶會場號屬狀態變體檔擊兩現龍劍類擁個遊戲請見攜電氣鋼蟲飛惡霧無與並為傷觸禦極噴發滿時換雙將讓處異級敵標優來學擲幣獲這該傳給後轉]") {
     return $false
   }
   if ($Text -match "日文︰|英文︰|是第[一二三四五六七八九十]+世代引入|目前类似|游戏漏洞|；\s*；|如、|、等|拥有、|^.*（日文") {
@@ -575,7 +609,7 @@ foreach ($row in $missingRows) {
 
   Write-Output ("Resolving {0} {1} {2} / {3}" -f $row.entity, $row.source_id, $chineseName, $englishName)
   try {
-    $titleHit = Find-WikiTitle $row.entity $chineseName $englishName $row.identifier
+    $titleHit = Find-WikiTitle $row.entity $chineseName $englishName $row.identifier $sourceId
   } catch {
     Write-Warning ("Failed to search 52poke for {0} {1}: {2}" -f $row.entity, $row.source_id, $_.Exception.Message)
     $processed++
@@ -595,7 +629,7 @@ foreach ($row in $missingRows) {
     continue
   }
 
-  if (-not (Test-WikiPageMatch $row.entity $content $chineseName $englishName)) {
+  if (-not (Test-WikiPageMatch $row.entity $content $chineseName $englishName $sourceId)) {
     Write-Warning ("Rejected mismatched 52poke page for {0} {1}: {2}" -f $row.entity, $row.source_id, $titleHit.Title)
     $processed++
     continue
