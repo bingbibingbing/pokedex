@@ -31,14 +31,15 @@ function Read-RequiredCsv {
   return @(Import-Csv -LiteralPath $Path -Encoding UTF8)
 }
 
-function Get-EnglishNameMap {
+function Get-LocalizedNameMap {
   param(
     [string]$Path,
-    [string]$IdColumn
+    [string]$IdColumn,
+    [string]$LanguageId
   )
   $map = @{}
   foreach ($row in (Read-RequiredCsv $Path)) {
-    if ($row.local_language_id -eq "9" -and $row.$IdColumn) {
+    if ($row.local_language_id -eq $LanguageId -and $row.$IdColumn) {
       $map[[int]$row.$IdColumn] = $row.name
     }
   }
@@ -107,6 +108,7 @@ function Get-EntitySuffix {
 function Find-WikiTitle {
   param(
     [string]$Entity,
+    [string]$ChineseName,
     [string]$EnglishName,
     [string]$Identifier
   )
@@ -115,7 +117,26 @@ function Find-WikiTitle {
     return $null
   }
 
+  if (-not [string]::IsNullOrWhiteSpace($ChineseName)) {
+    $directTitles = @($ChineseName + $suffix, $ChineseName)
+    foreach ($directTitle in $directTitles) {
+      try {
+        $content = Get-WikiText $directTitle
+        if (-not [string]::IsNullOrWhiteSpace($content)) {
+          return [pscustomobject]@{
+            Title = $directTitle
+            Snippet = ""
+          }
+        }
+      } catch {
+      }
+    }
+  }
+
   $queries = New-Object System.Collections.Generic.List[string]
+  if (-not [string]::IsNullOrWhiteSpace($ChineseName)) {
+    $queries.Add('"' + $ChineseName + '"')
+  }
   if (-not [string]::IsNullOrWhiteSpace($EnglishName)) {
     $queries.Add('"' + $EnglishName + '"')
   }
@@ -143,6 +164,40 @@ function Find-WikiTitle {
   }
 
   return $null
+}
+
+function Test-WikiPageMatch {
+  param(
+    [string]$Entity,
+    [string]$Content,
+    [string]$ChineseName,
+    [string]$EnglishName
+  )
+  if ([string]::IsNullOrWhiteSpace($Content)) {
+    return $false
+  }
+
+  if ($Entity -eq "move" -and $Content -notmatch "\{\{招式信息框") {
+    return $false
+  }
+  if ($Entity -eq "ability" -and $Content -notmatch "\{\{特性信息框") {
+    return $false
+  }
+  if ($Entity -eq "item" -and $Content -notmatch "\{\{道具信息框") {
+    return $false
+  }
+
+  $pageEnglishName = Get-InfoboxField $Content @("enname")
+  if (-not [string]::IsNullOrWhiteSpace($EnglishName) -and -not [string]::IsNullOrWhiteSpace($pageEnglishName)) {
+    return $pageEnglishName.Equals($EnglishName, [System.StringComparison]::OrdinalIgnoreCase)
+  }
+
+  $pageChineseName = Get-EntityName $Content
+  if (-not [string]::IsNullOrWhiteSpace($ChineseName) -and -not [string]::IsNullOrWhiteSpace($pageChineseName)) {
+    return (Convert-TraditionalTerms $pageChineseName) -eq (Convert-TraditionalTerms $ChineseName)
+  }
+
+  return $true
 }
 
 function Get-WikiText {
@@ -197,6 +252,11 @@ function Convert-WikiTextToPlain {
   $value = [regex]::Replace($value, "\{\{招式效果/睡眠\|([^|}]+)\}\}", '有$1%的几率使目标陷入睡眠状态。')
   $value = [regex]::Replace($value, "\{\{招式效果/混乱\|([^|}]+)\}\}", '有$1%的几率使目标陷入混乱状态。')
   $value = [regex]::Replace($value, "\{\{招式效果/吸取\|([^|}]+)\}\}", '自身回复造成伤害$1%的ＨＰ。')
+  $value = [regex]::Replace($value, "\{\{招式效果/回复ＨＰ\|([^|}]+)\|([^|}]+)\}\}", '$2回复最大ＨＰ的$1%。')
+  $value = [regex]::Replace($value, "\{\{招式效果/能力降低\|([^|}]+)\|([^|}]+)\|\|([^|}]+)\}\}", '使$3的$1降低$2级。')
+  $value = [regex]::Replace($value, "\{\{招式效果/能力降低\|([^|}]+)\|([^|}]+)\}\}", '使目标的$1降低$2级。')
+  $value = [regex]::Replace($value, "\{\{招式效果/能力降低\|([^|}]+)\}\}", '使目标的$1降低1级。')
+  $value = [regex]::Replace($value, "\{\{招式效果/保护\|([^|}]+)\}\}", "进入守住状态。")
   $value = [regex]::Replace($value, "\{\{招式效果/必中\}\}", "攻击必定会命中。")
   $value = [regex]::Replace($value, "\{\{招式效果/解冻[^}]*\}\}", "使用后可以解除自己的冰冻状态。")
   $value = [regex]::Replace($value, "\{\{招式效果/多种异常\|([^|}]+)\|([^|}]+)\|([^|}]+)\|([^|}]+)\}\}", '有$1%的几率使目标陷入$2状态、$3状态或$4状态。')
@@ -204,6 +264,7 @@ function Convert-WikiTextToPlain {
   $value = [regex]::Replace($value, "\{\{type\|([^}|]+)\}\}", '$1属性')
   $value = [regex]::Replace($value, "\{\{s\|([^}|]+)\}\}", '$1')
   $value = [regex]::Replace($value, "\{\{stat\|([^}|]+)\}\}", '$1')
+  $value = [regex]::Replace($value, "\{\{a\|([^}|]+)\}\}", '$1')
   $value = [regex]::Replace($value, "\{\{MSP\|[^}]+\}\}", "")
   $value = [regex]::Replace($value, "\[\[[^|\]]+\|([^\]]+)\]\]", '$1')
   $value = [regex]::Replace($value, "\[\[([^\]]+)\]\]", '$1')
@@ -275,6 +336,12 @@ function Convert-TraditionalTerms {
     "異常" = "异常"
     "級" = "级"
     "敵方" = "敌方"
+    "目標" = "目标"
+    "標" = "标"
+    "優先度" = "优先度"
+    "優" = "优"
+    "原來" = "原来"
+    "來" = "来"
   }
   foreach ($key in $replacements.Keys) {
     $value = $value.Replace($key, $replacements[$key])
@@ -293,13 +360,13 @@ function Test-TextQuality {
   if ($Text -match "<[^>]+>|&[a-zA-Z#0-9]+;|\{\{|\}\}|\[\[|\]\]") {
     return $false
   }
-  if ($Text -match "[對連寶會場號屬狀態變體檔擊兩現龍劍類擁個遊戲請見攜無與並為傷觸禦極噴發滿時換雙將讓處異級敵]") {
+  if ($Text -match "[對連寶會場號屬狀態變體檔擊兩現龍劍類擁個遊戲請見攜無與並為傷觸禦極噴發滿時換雙將讓處異級敵標優來]") {
     return $false
   }
   if ($Text -match "日文︰|英文︰|是第[一二三四五六七八九十]+世代引入|目前类似|游戏漏洞|；\s*；|如、|、等|拥有、|^.*（日文") {
     return $false
   }
-  if ($Text -match "的的|陷入和状态|例如）|特性为或|特性（如|如等|因素：.*；\s*；|无视、|、、、") {
+  if ($Text -match "的的|可被的|陷入和状态|例如）|特性为或|特性（如|如等|因素：.*；\s*；|无视、|、、、|、、|===|受到接触类招式的攻击时，\s*$|若＞|若＜|该招式优先度\\+1|结实特性不能阻止") {
     return $false
   }
   return $true
@@ -314,6 +381,27 @@ function Test-OverrideRowQuality {
     return $false
   }
   return $true
+}
+
+function Save-Overrides {
+  param(
+    [string]$Path,
+    [object[]]$ExistingRows,
+    [System.Collections.Generic.List[object]]$NewRows
+  )
+  $outDirectory = Split-Path -Parent $Path
+  if (-not [string]::IsNullOrWhiteSpace($outDirectory)) {
+    New-Item -ItemType Directory -Force -Path $outDirectory | Out-Null
+  }
+
+  $allRows = New-Object System.Collections.Generic.List[object]
+  foreach ($row in @($ExistingRows)) {
+    $allRows.Add($row)
+  }
+  foreach ($row in $NewRows) {
+    $allRows.Add($row)
+  }
+  $allRows | Export-Csv -LiteralPath $Path -Encoding UTF8 -NoTypeInformation
 }
 
 function Get-InfoboxField {
@@ -419,9 +507,12 @@ function Get-EntityDescription {
   return ""
 }
 
-$moveNames = Get-EnglishNameMap (Join-Path $SourcePath "move_names.csv") "move_id"
-$abilityNames = Get-EnglishNameMap (Join-Path $SourcePath "ability_names.csv") "ability_id"
-$itemNames = Get-EnglishNameMap (Join-Path $SourcePath "item_names.csv") "item_id"
+$moveEnglishNames = Get-LocalizedNameMap (Join-Path $SourcePath "move_names.csv") "move_id" "9"
+$moveChineseNames = Get-LocalizedNameMap (Join-Path $SourcePath "move_names.csv") "move_id" "12"
+$abilityEnglishNames = Get-LocalizedNameMap (Join-Path $SourcePath "ability_names.csv") "ability_id" "9"
+$abilityChineseNames = Get-LocalizedNameMap (Join-Path $SourcePath "ability_names.csv") "ability_id" "12"
+$itemEnglishNames = Get-LocalizedNameMap (Join-Path $SourcePath "item_names.csv") "item_id" "9"
+$itemChineseNames = Get-LocalizedNameMap (Join-Path $SourcePath "item_names.csv") "item_id" "12"
 $missingRows = Read-RequiredCsv $MissingChinesePath
 
 $existingRows = @()
@@ -453,17 +544,21 @@ foreach ($row in $missingRows) {
   if ($seen.ContainsKey($key)) { continue }
 
   $englishName = ""
-  if ($row.entity -eq "move" -and $moveNames.ContainsKey($sourceId)) {
-    $englishName = $moveNames[$sourceId]
-  } elseif ($row.entity -eq "ability" -and $abilityNames.ContainsKey($sourceId)) {
-    $englishName = $abilityNames[$sourceId]
-  } elseif ($row.entity -eq "item" -and $itemNames.ContainsKey($sourceId)) {
-    $englishName = $itemNames[$sourceId]
+  $chineseName = ""
+  if ($row.entity -eq "move") {
+    if ($moveEnglishNames.ContainsKey($sourceId)) { $englishName = $moveEnglishNames[$sourceId] }
+    if ($moveChineseNames.ContainsKey($sourceId)) { $chineseName = $moveChineseNames[$sourceId] }
+  } elseif ($row.entity -eq "ability") {
+    if ($abilityEnglishNames.ContainsKey($sourceId)) { $englishName = $abilityEnglishNames[$sourceId] }
+    if ($abilityChineseNames.ContainsKey($sourceId)) { $chineseName = $abilityChineseNames[$sourceId] }
+  } elseif ($row.entity -eq "item") {
+    if ($itemEnglishNames.ContainsKey($sourceId)) { $englishName = $itemEnglishNames[$sourceId] }
+    if ($itemChineseNames.ContainsKey($sourceId)) { $chineseName = $itemChineseNames[$sourceId] }
   }
 
-  Write-Output ("Resolving {0} {1} {2}" -f $row.entity, $row.source_id, $englishName)
+  Write-Output ("Resolving {0} {1} {2} / {3}" -f $row.entity, $row.source_id, $chineseName, $englishName)
   try {
-    $titleHit = Find-WikiTitle $row.entity $englishName $row.identifier
+    $titleHit = Find-WikiTitle $row.entity $chineseName $englishName $row.identifier
   } catch {
     Write-Warning ("Failed to search 52poke for {0} {1}: {2}" -f $row.entity, $row.source_id, $_.Exception.Message)
     $processed++
@@ -479,6 +574,12 @@ foreach ($row in $missingRows) {
     $content = Get-WikiText $titleHit.Title
   } catch {
     Write-Warning ("Failed to fetch 52poke page {0}: {1}" -f $titleHit.Title, $_.Exception.Message)
+    $processed++
+    continue
+  }
+
+  if (-not (Test-WikiPageMatch $row.entity $content $chineseName $englishName)) {
+    Write-Warning ("Rejected mismatched 52poke page for {0} {1}: {2}" -f $row.entity, $row.source_id, $titleHit.Title)
     $processed++
     continue
   }
@@ -523,22 +624,11 @@ foreach ($row in $missingRows) {
     license = "CC BY-NC-SA 3.0"
   })
   $seen[$key] = $true
+  Save-Overrides $OutPath $existingRows $newRows
   $processed++
 }
 
-$outDirectory = Split-Path -Parent $OutPath
-if (-not [string]::IsNullOrWhiteSpace($outDirectory)) {
-  New-Item -ItemType Directory -Force -Path $outDirectory | Out-Null
-}
-
-$allRows = New-Object System.Collections.Generic.List[object]
-foreach ($row in @($existingRows)) {
-  $allRows.Add($row)
-}
-foreach ($row in $newRows) {
-  $allRows.Add($row)
-}
-$allRows | Export-Csv -LiteralPath $OutPath -Encoding UTF8 -NoTypeInformation
+Save-Overrides $OutPath $existingRows $newRows
 
 Write-Output ("Chinese overrides written: {0}" -f $OutPath)
 Write-Output ("New overrides: {0}" -f $newRows.Count)
