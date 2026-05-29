@@ -1176,18 +1176,7 @@ namespace PodexDesktop
 
             foreach (var type in types)
             {
-                panel.Controls.Add(new Label
-                {
-                    Text = LocalName(type.names),
-                    AutoSize = false,
-                    Width = 44,
-                    Height = 18,
-                    TextAlign = ContentAlignment.MiddleCenter,
-                    BackColor = TypeColor(type.id),
-                    ForeColor = Color.White,
-                    Font = new Font("Segoe UI", 8f, FontStyle.Bold),
-                    Margin = new Padding(0, 2, 4, 0)
-                });
+                panel.Controls.Add(MakeTypeBadgeLabel(type, 44, 20, new Padding(0, 1, 4, 0)));
             }
             return panel;
         }
@@ -1219,18 +1208,7 @@ namespace PodexDesktop
 
         private static Label MakeCompactTypeBadge(TypeRef type)
         {
-            return new Label
-            {
-                Text = LocalName(type.names),
-                AutoSize = false,
-                Width = 38,
-                Height = 18,
-                TextAlign = ContentAlignment.MiddleCenter,
-                BackColor = TypeColor(type.id),
-                ForeColor = Color.White,
-                Font = new Font("Segoe UI", 8f, FontStyle.Bold),
-                Margin = new Padding(0, 2, 4, 0)
-            };
+            return MakeTypeBadgeLabel(type, 38, 20, new Padding(0, 1, 4, 0));
         }
 
         private TabPage BuildPokemonMoveFilterTab(PokemonEntry p)
@@ -1746,16 +1724,9 @@ namespace PodexDesktop
                 if (row >= 3) break;
 
                 double multiplier = ParseMultiplier(GetDefenseMultiplierText(p, type.id));
-                table.Controls.Add(new Label
-                {
-                    Text = LocalName(type.names),
-                    Dock = DockStyle.Fill,
-                    TextAlign = ContentAlignment.MiddleCenter,
-                    BackColor = TypeColor(type.id),
-                    ForeColor = Color.White,
-                    Font = new Font("Segoe UI", 8f, FontStyle.Bold),
-                    Margin = new Padding(0, 0, 1, 1)
-                }, pair * 2, row);
+                Label typeLabel = MakeTypeBadgeLabel(type, 30, 25, new Padding(0, 0, 1, 1));
+                typeLabel.Dock = DockStyle.Fill;
+                table.Controls.Add(typeLabel, pair * 2, row);
                 table.Controls.Add(new Label
                 {
                     Text = multiplier.ToString("0.##"),
@@ -3015,15 +2986,21 @@ namespace PodexDesktop
 
         private static Label MakeTypeBadge(TypeRef type)
         {
-            return new Label
+            return MakeTypeBadgeLabel(type, 64, 26, new Padding(0, 0, 8, 0));
+        }
+
+        private static CenteredBadgeLabel MakeTypeBadgeLabel(TypeRef type, int width, int height, Padding margin)
+        {
+            return new CenteredBadgeLabel
             {
                 Text = LocalName(type.names),
-                AutoSize = true,
+                AutoSize = false,
+                Width = width,
+                Height = height,
                 BackColor = TypeColor(type.id),
                 ForeColor = Color.White,
-                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-                Padding = new Padding(10, 5, 10, 5),
-                Margin = new Padding(0, 0, 8, 0)
+                Font = new Font("Microsoft YaHei UI", 8f, FontStyle.Bold),
+                Margin = margin
             };
         }
 
@@ -3385,6 +3362,23 @@ namespace PodexDesktop
                 case 17: return Color.FromArgb(68, 56, 51);
                 case 18: return Color.FromArgb(180, 92, 134);
                 default: return Color.FromArgb(125, 120, 101);
+            }
+        }
+    }
+
+    public sealed class CenteredBadgeLabel : Label
+    {
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.Clear(BackColor);
+            e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+            using (var brush = new SolidBrush(ForeColor))
+            using (var format = new StringFormat())
+            {
+                format.Alignment = StringAlignment.Center;
+                format.LineAlignment = StringAlignment.Center;
+                format.FormatFlags = StringFormatFlags.NoWrap;
+                e.Graphics.DrawString(Text, Font, brush, ClientRectangle, format);
             }
         }
     }
