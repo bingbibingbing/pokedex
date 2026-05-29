@@ -87,6 +87,8 @@ namespace PodexDesktop
         private bool pokemonSmallImagesLoaded;
         private bool itemSmallImagesLoaded;
         private bool suppressAutoSelectFirstItem;
+        private ListViewItem tooltipListItem;
+        private int tooltipSubItemIndex = -1;
         private static readonly PropertyInfo DoubleBufferedProperty = typeof(Control).GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic);
         private static readonly Dictionary<IntPtr, int> RedrawSuspendDepth = new Dictionary<IntPtr, int>();
 
@@ -210,6 +212,8 @@ namespace PodexDesktop
             };
             list.DrawColumnHeader += DrawListColumnHeader;
             list.DrawSubItem += DrawListSubItem;
+            list.MouseMove += HandleListMouseMove;
+            list.MouseLeave += delegate { HideListTooltip(); };
 
             details.Dock = DockStyle.Fill;
             details.AutoScroll = true;
@@ -489,6 +493,7 @@ namespace PodexDesktop
 
         private void SelectModule(string key)
         {
+            HideListTooltip();
             RunWithRedrawSuspended(this, delegate
             {
                 SuspendLayout();
@@ -562,7 +567,21 @@ namespace PodexDesktop
 
         private void DrawListColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
         {
-            e.DrawDefault = true;
+            if (!(module.StartsWith("pokemon") || module == "moves" || module == "items"))
+            {
+                e.DrawDefault = true;
+                return;
+            }
+
+            using (var background = new SolidBrush(SystemColors.Control))
+            using (var border = new Pen(Color.FromArgb(180, 180, 180)))
+            using (var font = new Font("Microsoft YaHei UI", module == "items" ? 9f : 7.6f, FontStyle.Regular))
+            {
+                e.Graphics.FillRectangle(background, e.Bounds);
+                e.Graphics.DrawRectangle(border, e.Bounds.Left, e.Bounds.Top, e.Bounds.Width - 1, e.Bounds.Height - 1);
+                TextFormatFlags flags = TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPrefix;
+                TextRenderer.DrawText(e.Graphics, e.Header.Text, font, e.Bounds, Color.Black, flags);
+            }
         }
 
         private void DrawListSubItem(object sender, DrawListViewSubItemEventArgs e)
@@ -608,7 +627,8 @@ namespace PodexDesktop
             else
             {
                 int padding = e.ColumnIndex == 0 ? 4 : (e.ColumnIndex >= 3 && e.ColumnIndex <= 4 ? 2 : 4);
-                DrawListCellText(e.Graphics, e.Bounds, e.SubItem.Text, foreColor, padding);
+                Font font = (e.ColumnIndex >= 3 || e.ColumnIndex == 0) ? e.SubItem.Font : list.Font;
+                DrawListCellText(e.Graphics, e.Bounds, e.SubItem.Text, foreColor, padding, font);
             }
 
             using (var pen = new Pen(Color.FromArgb(205, 205, 205)))
@@ -633,7 +653,8 @@ namespace PodexDesktop
             }
             else
             {
-                DrawListCellText(e.Graphics, e.Bounds, e.SubItem.Text, foreColor, 4);
+                Font font = e.ColumnIndex >= 2 ? e.SubItem.Font : list.Font;
+                DrawListCellText(e.Graphics, e.Bounds, e.SubItem.Text, foreColor, 4, font);
             }
         }
 
@@ -674,9 +695,59 @@ namespace PodexDesktop
 
         private void DrawListCellText(Graphics graphics, Rectangle bounds, string text, Color foreColor, int leftPadding)
         {
+            DrawListCellText(graphics, bounds, text, foreColor, leftPadding, list.Font);
+        }
+
+        private void DrawListCellText(Graphics graphics, Rectangle bounds, string text, Color foreColor, int leftPadding, Font font)
+        {
             TextFormatFlags flags = TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis;
             Rectangle textBounds = new Rectangle(bounds.Left + leftPadding, bounds.Top, Math.Max(0, bounds.Width - leftPadding - 4), bounds.Height);
-            TextRenderer.DrawText(graphics, text, list.Font, textBounds, foreColor, flags);
+            TextRenderer.DrawText(graphics, text, font ?? list.Font, textBounds, foreColor, flags);
+        }
+
+        private void HandleListMouseMove(object sender, MouseEventArgs e)
+        {
+            if (module != "abilities")
+            {
+                HideListTooltip();
+                return;
+            }
+
+            ListViewHitTestInfo hit = list.HitTest(e.Location);
+            if (hit.Item == null || hit.SubItem == null || hit.Item.Tag == null)
+            {
+                HideListTooltip();
+                return;
+            }
+
+            int subItemIndex = hit.Item.SubItems.IndexOf(hit.SubItem);
+            var ability = hit.Item.Tag as AbilityEntry;
+            if (subItemIndex != 2 || ability == null)
+            {
+                HideListTooltip();
+                return;
+            }
+
+            if (tooltipListItem == hit.Item && tooltipSubItemIndex == subItemIndex) return;
+
+            string description = LocalName(ability.descriptions);
+            if (string.IsNullOrWhiteSpace(description))
+            {
+                HideListTooltip();
+                return;
+            }
+
+            tooltipListItem = hit.Item;
+            tooltipSubItemIndex = subItemIndex;
+            abilityToolTip.Show(description, list, e.X + 16, e.Y + 18, 8000);
+        }
+
+        private void HideListTooltip()
+        {
+            if (tooltipListItem == null && tooltipSubItemIndex < 0) return;
+            tooltipListItem = null;
+            tooltipSubItemIndex = -1;
+            abilityToolTip.Hide(list);
         }
 
         private static Color MoveListCellBackColor(ListViewItem.ListViewSubItem subItem)
@@ -728,13 +799,13 @@ namespace PodexDesktop
                 list.SmallImageList = null;
                 titleLabel.Text = "招式";
                 list.Columns.Add("#", 36);
-                list.Columns.Add("名字", 124);
-                list.Columns.Add("属性", 50);
-                list.Columns.Add("分类", 54);
-                list.Columns.Add("威", 34);
-                list.Columns.Add("命", 34);
+                list.Columns.Add("名字", 112);
+                list.Columns.Add("属性", 46);
+                list.Columns.Add("分类", 50);
+                list.Columns.Add("威", 42);
+                list.Columns.Add("命", 42);
                 list.Columns.Add("PP", 32);
-                list.Columns.Add("范围", 44);
+                list.Columns.Add("范围", 42);
                 list.Columns.Add("优", 28);
             }
             else if (module == "abilities")
@@ -1178,13 +1249,13 @@ namespace PodexDesktop
             item.SubItems.Add(LocalName(p.names));
             AddTypeSubItem(item, TypeAt(p.types, 0));
             AddTypeSubItem(item, TypeAt(p.types, 1));
-            item.SubItems.Add(p.stats == null ? "" : p.stats.hp.ToString());
-            item.SubItems.Add(p.stats == null ? "" : p.stats.attack.ToString());
-            item.SubItems.Add(p.stats == null ? "" : p.stats.defense.ToString());
-            item.SubItems.Add(p.stats == null ? "" : p.stats.specialAttack.ToString());
-            item.SubItems.Add(p.stats == null ? "" : p.stats.specialDefense.ToString());
-            item.SubItems.Add(p.stats == null ? "" : p.stats.speed.ToString());
-            item.SubItems.Add(p.stats == null ? "" : p.stats.total.ToString());
+            AddCompactSubItem(item, p.stats == null ? "" : p.stats.hp.ToString());
+            AddCompactSubItem(item, p.stats == null ? "" : p.stats.attack.ToString());
+            AddCompactSubItem(item, p.stats == null ? "" : p.stats.defense.ToString());
+            AddCompactSubItem(item, p.stats == null ? "" : p.stats.specialAttack.ToString());
+            AddCompactSubItem(item, p.stats == null ? "" : p.stats.specialDefense.ToString());
+            AddCompactSubItem(item, p.stats == null ? "" : p.stats.speed.ToString());
+            AddCompactSubItem(item, p.stats == null ? "" : p.stats.total.ToString());
             item.Tag = p;
             list.Items.Add(item);
             pokemonListItemsByLegacyId[p.legacyId] = item;
@@ -1196,11 +1267,11 @@ namespace PodexDesktop
             item.SubItems.Add(LocalName(m.names));
             AddTypeSubItem(item, m.type);
             AddCategorySubItem(item, m.category);
-            item.SubItems.Add(MoveValue(m.power));
-            item.SubItems.Add(MoveValue(m.accuracy));
-            item.SubItems.Add(MoveValue(m.pp));
-            item.SubItems.Add(MoveValue(m.rangeId));
-            item.SubItems.Add(ValueOrDash(m.priority));
+            AddCompactSubItem(item, MoveValue(m.power));
+            AddCompactSubItem(item, MoveValue(m.accuracy));
+            AddCompactSubItem(item, MoveValue(m.pp));
+            AddCompactSubItem(item, MoveValue(m.rangeId));
+            AddCompactSubItem(item, ValueOrDash(m.priority));
             item.Tag = m;
             list.Items.Add(item);
         }
@@ -3300,16 +3371,20 @@ namespace PodexDesktop
                 ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
                 ColumnHeadersHeight = 24,
                 RowTemplate = { Height = 22 },
+                ShowCellToolTips = true,
                 ScrollBars = ScrollBars.Vertical
             };
+            grid.DefaultCellStyle.Font = new Font("Microsoft YaHei UI", 8.5f, FontStyle.Regular);
+            grid.ColumnHeadersDefaultCellStyle.Font = new Font("Microsoft YaHei UI", 8.3f, FontStyle.Regular);
+            grid.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
             grid.Columns.Add(MakeTextColumn("number", "#", 34));
-            grid.Columns.Add(MakeImageColumn("icon", "", 22));
-            grid.Columns.Add(MakeTextColumn("name", "宝可梦", 82));
-            grid.Columns.Add(MakeTextColumn("type1", "属性", 40));
-            grid.Columns.Add(MakeTextColumn("type2", "属性", 40));
-            grid.Columns.Add(MakeTextColumn("level", "Lv.", 44));
+            grid.Columns.Add(MakeImageColumn("icon", "", 20));
+            grid.Columns.Add(MakeTextColumn("name", "宝可梦", 76));
+            grid.Columns.Add(MakeTextColumn("type1", "属性", 52));
+            grid.Columns.Add(MakeTextColumn("type2", "属性", 52));
+            grid.Columns.Add(MakeTextColumn("level", "Lv.", 38));
             grid.Columns["name"].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
-            grid.Columns["name"].MinimumWidth = 68;
+            grid.Columns["name"].MinimumWidth = 64;
             foreach (DataGridViewColumn column in grid.Columns)
             {
                 column.SortMode = DataGridViewColumnSortMode.NotSortable;
@@ -3335,7 +3410,7 @@ namespace PodexDesktop
                 grid.Columns["type2"].Width +
                 grid.Columns["level"].Width +
                 26;
-            grid.Columns["name"].Width = Math.Max(68, grid.ClientSize.Width - fixedWidth);
+            grid.Columns["name"].Width = Math.Max(64, grid.ClientSize.Width - fixedWidth);
         }
 
         private void FillMovePokemonGrid(DataGridView grid, MoveEntry move)
@@ -5156,6 +5231,13 @@ namespace PodexDesktop
                 sub.ForeColor = Color.White;
                 sub.Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
             }
+        }
+
+        private static void AddCompactSubItem(ListViewItem item, string text)
+        {
+            var sub = item.SubItems.Add(text);
+            item.UseItemStyleForSubItems = false;
+            sub.Font = new Font("Segoe UI", 8.2f, FontStyle.Regular);
         }
 
         private static void AddCategorySubItem(ListViewItem item, NamedRef category)
