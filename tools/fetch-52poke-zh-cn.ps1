@@ -499,6 +499,9 @@ function Test-OverrideRowQuality {
   if ($Row.zhCN_name -and -not (Test-TextQuality $Row.zhCN_name)) {
     return $false
   }
+  if ($Row.zhCN_genus -and -not (Test-TextQuality $Row.zhCN_genus)) {
+    return $false
+  }
   if ($Row.zhCN_description -and -not (Test-TextQuality $Row.zhCN_description)) {
     return $false
   }
@@ -708,6 +711,18 @@ function Get-EntityName {
   return $name
 }
 
+function Get-PokemonGenus {
+  param([string]$Content)
+  $species = Get-InfoboxField $Content @("species")
+  if ([string]::IsNullOrWhiteSpace($species)) {
+    return ""
+  }
+  if ($species.EndsWith("宝可梦")) {
+    return $species
+  }
+  return $species + "宝可梦"
+}
+
 function Get-EntityDescription {
   param(
     [string]$Entity,
@@ -857,6 +872,11 @@ foreach ($row in $missingRows) {
     $name = Get-EntityName $content
   }
 
+  $genus = ""
+  if ($row.entity -eq "pokemon") {
+    $genus = Get-PokemonGenus $content
+  }
+
   $description = ""
   if ($row.missing_description -eq "1") {
     $description = Get-EntityDescription $row.entity $content $titleHit.Snippet $row.identifier
@@ -870,6 +890,7 @@ foreach ($row in $missingRows) {
   }
 
   if (($row.missing_name -eq "1" -and -not (Test-TextQuality $name)) -or
+      (-not [string]::IsNullOrWhiteSpace($genus) -and -not (Test-TextQuality $genus)) -or
       ($row.missing_description -eq "1" -and -not (Test-TextQuality $description))) {
     Write-Warning ("Rejected low-quality Chinese text for {0} {1} from {2}" -f $row.entity, $row.source_id, $titleHit.Title)
     $processed++
@@ -881,6 +902,7 @@ foreach ($row in $missingRows) {
     source_id = $row.source_id
     identifier = $row.identifier
     zhCN_name = $name
+    zhCN_genus = $genus
     zhCN_description = $description
     source_title = $titleHit.Title
     source_url = "https://wiki.52poke.com/wiki/" + [uri]::EscapeDataString($titleHit.Title)

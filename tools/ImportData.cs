@@ -818,17 +818,19 @@ namespace PodexTools
 
         private sealed class ChineseOverride
         {
-            public ChineseOverride(string entity, int sourceId, string name, string description)
+            public ChineseOverride(string entity, int sourceId, string name, string genus, string description)
             {
                 Entity = entity;
                 SourceId = sourceId;
                 Name = name;
+                Genus = genus;
                 Description = description;
             }
 
             public string Entity { get; private set; }
             public int SourceId { get; private set; }
             public string Name { get; private set; }
+            public string Genus { get; private set; }
             public string Description { get; private set; }
         }
 
@@ -957,14 +959,25 @@ namespace PodexTools
                 var raw = serializer.DeserializeObject(File.ReadAllText(options.DataPath, Encoding.UTF8)) as Dictionary<string, object>;
                 if (raw == null) throw new InvalidDataException("Root JSON must be an object.");
 
+                List<object> pokemon = RawList(raw, "pokemon");
                 List<object> moves = RawList(raw, "moves");
                 List<object> abilities = RawList(raw, "abilities");
                 List<object> items = RawList(raw, "items");
+                List<object> evolutions = RawList(raw, "evolutions");
 
+                int maxPokemonDex = MaxRawId(pokemon, "nationalDex");
                 int maxMoveId = MaxRawId(moves, "id");
                 int maxAbilityId = MaxRawId(abilities, "id");
                 int maxItemId = MaxRawId(items, "id");
 
+                CsvTable sourceSpecies = CsvTable.Load(Path.Combine(options.SourcePath, "pokemon_species.csv"));
+                CsvTable sourcePokemon = CsvTable.Load(Path.Combine(options.SourcePath, "pokemon.csv"));
+                CsvTable pokemonSpeciesNames = CsvTable.Load(Path.Combine(options.SourcePath, "pokemon_species_names.csv"));
+                CsvTable pokemonSpeciesFlavorText = CsvTable.Load(Path.Combine(options.SourcePath, "pokemon_species_flavor_text.csv"));
+                CsvTable pokemonTypes = CsvTable.Load(Path.Combine(options.SourcePath, "pokemon_types.csv"));
+                CsvTable pokemonStats = CsvTable.Load(Path.Combine(options.SourcePath, "pokemon_stats.csv"));
+                CsvTable pokemonAbilities = CsvTable.Load(Path.Combine(options.SourcePath, "pokemon_abilities.csv"));
+                CsvTable pokemonEggGroups = CsvTable.Load(Path.Combine(options.SourcePath, "pokemon_egg_groups.csv"));
                 CsvTable sourceMoves = CsvTable.Load(Path.Combine(options.SourcePath, "moves.csv"));
                 CsvTable moveNames = CsvTable.Load(Path.Combine(options.SourcePath, "move_names.csv"));
                 CsvTable moveEffects = CsvTable.Load(Path.Combine(options.SourcePath, "move_effect_prose.csv"));
@@ -976,6 +989,10 @@ namespace PodexTools
                 CsvTable itemProse = CsvTable.Load(Path.Combine(options.SourcePath, "item_prose.csv"));
                 CsvTable itemGameIndices = CsvTable.Load(Path.Combine(options.SourcePath, "item_game_indices.csv"));
 
+                Dictionary<int, Dictionary<string, string>> pokemonNameMap = BuildLocalizedTextMap(pokemonSpeciesNames, "pokemon_species_id", "name");
+                Dictionary<int, Dictionary<string, string>> pokemonGenusMap = BuildLocalizedTextMap(pokemonSpeciesNames, "pokemon_species_id", "genus");
+                Dictionary<int, Dictionary<string, string>> pokemonFlavorMap = BuildLatestFlavorTextMap(pokemonSpeciesFlavorText);
+                Dictionary<int, Dictionary<string, string>> pokemonDescriptionOverrides = new Dictionary<int, Dictionary<string, string>>();
                 Dictionary<int, Dictionary<string, string>> moveNameMap = BuildLocalizedTextMap(moveNames, "move_id", "name");
                 Dictionary<int, Dictionary<string, string>> moveEffectMap = BuildLocalizedTextMap(moveEffects, "move_effect_id", "short_effect");
                 Dictionary<int, Dictionary<string, string>> moveDescriptionOverrides = new Dictionary<int, Dictionary<string, string>>();
@@ -984,9 +1001,43 @@ namespace PodexTools
                 Dictionary<int, Dictionary<string, string>> itemNameMap = BuildLocalizedTextMap(itemNames, "item_id", "name");
                 Dictionary<int, Dictionary<string, string>> itemTextMap = BuildLocalizedTextMap(itemProse, "item_id", "short_effect");
                 List<ChineseOverride> overrides = LoadChineseOverrides(options.ChineseOverridePath);
-                ApplyChineseOverrides(overrides, moveNameMap, moveDescriptionOverrides, abilityNameMap, abilityTextMap, itemNameMap, itemTextMap);
+                ApplyChineseOverrides(overrides, pokemonNameMap, pokemonGenusMap, pokemonDescriptionOverrides, moveNameMap, moveDescriptionOverrides, abilityNameMap, abilityTextMap, itemNameMap, itemTextMap);
                 Dictionary<int, List<int>> itemGenerations = BuildItemGenerationMap(itemGameIndices);
                 Dictionary<int, Dictionary<string, object>> typeRefs = BuildTypeRefs(raw);
+                Dictionary<int, Dictionary<string, object>> abilityRefs = BuildNamedRefs(abilityNameMap);
+                Dictionary<int, Dictionary<string, object>> eggGroupRefs = BuildNestedNamedRefs(pokemon, "eggGroups");
+                Dictionary<int, Dictionary<string, object>> genderRatioRefs = BuildNestedNamedRefs(pokemon, "genderRatio");
+                Dictionary<int, Dictionary<string, object>> singleTypeDefense = BuildSingleTypeDefense(pokemon);
+                Dictionary<int, Dictionary<string, string>> speciesRows = BuildRowMap(sourceSpecies, "id");
+                Dictionary<int, List<Dictionary<string, string>>> typeRowsByPokemon = BuildRowsByInt(pokemonTypes, "pokemon_id");
+                Dictionary<int, List<Dictionary<string, string>>> statRowsByPokemon = BuildRowsByInt(pokemonStats, "pokemon_id");
+                Dictionary<int, List<Dictionary<string, string>>> abilityRowsByPokemon = BuildRowsByInt(pokemonAbilities, "pokemon_id");
+                Dictionary<int, List<Dictionary<string, string>>> eggGroupRowsBySpecies = BuildRowsByInt(pokemonEggGroups, "species_id");
+
+                int addedPokemon = 0;
+                int skippedPokemon = 0;
+                int skippedPokemonMissingChinese = 0;
+                foreach (Dictionary<string, string> row in sourcePokemon.Rows.OrderBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "species_id"); }).ThenBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "id"); }))
+                {
+                    int pokemonId = CsvInt(row, "id");
+                    int speciesId = CsvInt(row, "species_id");
+                    if (speciesId <= maxPokemonDex || CsvValue(row, "is_default") != "1") continue;
+                    Dictionary<string, string> speciesRow;
+                    if (!speciesRows.TryGetValue(speciesId, out speciesRow))
+                    {
+                        skippedPokemon++;
+                        continue;
+                    }
+                    if (!options.AllowEnglishFallback && !HasCompleteChinese(pokemonNameMap, speciesId, pokemonDescriptionOverrides, speciesId))
+                    {
+                        report.MissingChineseRows.Add(new MissingChineseRow("pokemon", speciesId, CsvValue(row, "identifier"), !HasChinese(pokemonNameMap, speciesId), !HasChinese(pokemonDescriptionOverrides, speciesId)));
+                        skippedPokemonMissingChinese++;
+                        continue;
+                    }
+                    pokemon.Add(BuildPokemon(row, speciesRow, pokemonNameMap, pokemonGenusMap, pokemonFlavorMap, pokemonDescriptionOverrides, typeRowsByPokemon, statRowsByPokemon, abilityRowsByPokemon, eggGroupRowsBySpecies, typeRefs, abilityRefs, eggGroupRefs, genderRatioRefs, singleTypeDefense));
+                    evolutions.Add(BuildPokemonEvolutionStub(speciesRow));
+                    addedPokemon++;
+                }
 
                 int addedMoves = 0;
                 int skippedMoves = 0;
@@ -1068,10 +1119,12 @@ namespace PodexTools
                     addedItems++;
                 }
 
+                raw["pokemon"] = pokemon;
+                raw["evolutions"] = evolutions;
                 raw["moves"] = moves;
                 raw["abilities"] = abilities;
                 raw["items"] = items;
-                UpdateMetaCounts(raw, moves.Count, abilities.Count, items.Count);
+                UpdateMetaCounts(raw, pokemon.Count, MaxRawId(pokemon, "nationalDex"), moves.Count, abilities.Count, items.Count, evolutions.Count);
 
                 string outputDirectory = Path.GetDirectoryName(Path.GetFullPath(options.PreviewDataPath));
                 if (!string.IsNullOrWhiteSpace(outputDirectory))
@@ -1081,6 +1134,9 @@ namespace PodexTools
                 File.WriteAllText(options.PreviewDataPath, serializer.Serialize(raw), Encoding.UTF8);
 
                 report.PreviewSummary["Preview data"] = Path.GetFullPath(options.PreviewDataPath);
+                report.PreviewSummary["Added Pokemon"] = addedPokemon.ToString();
+                report.PreviewSummary["Skipped incomplete Pokemon"] = skippedPokemon.ToString();
+                report.PreviewSummary["Skipped Pokemon missing Chinese"] = skippedPokemonMissingChinese.ToString();
                 report.PreviewSummary["Added moves"] = addedMoves.ToString();
                 report.PreviewSummary["Skipped non-mainline/incomplete moves"] = skippedMoves.ToString();
                 report.PreviewSummary["Skipped moves missing Chinese"] = skippedMovesMissingChinese.ToString();
@@ -1097,6 +1153,7 @@ namespace PodexTools
                 report.PreviewSummary["Preview moves total"] = moves.Count.ToString();
                 report.PreviewSummary["Preview abilities total"] = abilities.Count.ToString();
                 report.PreviewSummary["Preview items total"] = items.Count.ToString();
+                report.PreviewSummary["Preview Pokemon total"] = pokemon.Count.ToString();
             }
 
             private static Dictionary<string, object> BuildMove(
@@ -1177,6 +1234,85 @@ namespace PodexTools
                 return item;
             }
 
+            private static Dictionary<string, object> BuildPokemon(
+                Dictionary<string, string> pokemonRow,
+                Dictionary<string, string> speciesRow,
+                Dictionary<int, Dictionary<string, string>> names,
+                Dictionary<int, Dictionary<string, string>> genera,
+                Dictionary<int, Dictionary<string, string>> flavorTexts,
+                Dictionary<int, Dictionary<string, string>> descriptionOverrides,
+                Dictionary<int, List<Dictionary<string, string>>> typeRowsByPokemon,
+                Dictionary<int, List<Dictionary<string, string>>> statRowsByPokemon,
+                Dictionary<int, List<Dictionary<string, string>>> abilityRowsByPokemon,
+                Dictionary<int, List<Dictionary<string, string>>> eggGroupRowsBySpecies,
+                Dictionary<int, Dictionary<string, object>> typeRefs,
+                Dictionary<int, Dictionary<string, object>> abilityRefs,
+                Dictionary<int, Dictionary<string, object>> eggGroupRefs,
+                Dictionary<int, Dictionary<string, object>> genderRatioRefs,
+                Dictionary<int, Dictionary<string, object>> singleTypeDefense)
+            {
+                int pokemonId = CsvInt(pokemonRow, "id");
+                int speciesId = CsvInt(pokemonRow, "species_id");
+                var pokemon = new Dictionary<string, object>();
+                pokemon["id"] = "pokeapi:" + pokemonId.ToString(CultureInfo.InvariantCulture);
+                pokemon["legacyId"] = speciesId;
+                pokemon["nationalDex"] = speciesId;
+                pokemon["generation"] = CsvInt(speciesRow, "generation_id");
+                pokemon["formId"] = -1;
+                pokemon["names"] = TextOrIdentifier(names, speciesId, CsvValue(pokemonRow, "identifier"));
+                pokemon["formNames"] = DashNames();
+                pokemon["speciesNames"] = TextOrIdentifier(genera, speciesId, "");
+
+                List<int> typeIds = new List<int>();
+                var typeRefsForPokemon = new List<object>();
+                List<Dictionary<string, string>> typeRows;
+                if (typeRowsByPokemon.TryGetValue(pokemonId, out typeRows))
+                {
+                    foreach (Dictionary<string, string> typeRow in typeRows.OrderBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "slot"); }))
+                    {
+                        int typeId = CsvInt(typeRow, "type_id");
+                        Dictionary<string, object> typeRef;
+                        if (typeRefs.TryGetValue(typeId, out typeRef))
+                        {
+                            typeIds.Add(typeId);
+                            typeRefsForPokemon.Add(typeRef);
+                        }
+                    }
+                }
+                pokemon["types"] = typeRefsForPokemon;
+
+                pokemon["eggGroups"] = BuildEggGroups(speciesId, eggGroupRowsBySpecies, eggGroupRefs);
+                pokemon["genderRatio"] = GenderRatioRef(CsvInt(speciesRow, "gender_rate"), genderRatioRefs);
+                pokemon["abilities"] = BuildPokemonAbilities(pokemonId, abilityRowsByPokemon, abilityRefs);
+                pokemon["stats"] = BuildPokemonStats(pokemonId, statRowsByPokemon, false);
+                pokemon["effortYield"] = BuildPokemonStats(pokemonId, statRowsByPokemon, true);
+                pokemon["measurements"] = BuildMeasurements(CsvInt(pokemonRow, "height"), CsvInt(pokemonRow, "weight"));
+                pokemon["breeding"] = BuildBreedingInfo(speciesRow, pokemonRow);
+                pokemon["captureRate"] = CsvInt(speciesRow, "capture_rate");
+                pokemon["genderRatioId"] = GenderRatioId(CsvInt(speciesRow, "gender_rate"));
+                pokemon["colorId"] = CsvInt(speciesRow, "color_id");
+                pokemon["shapeId"] = CsvInt(speciesRow, "shape_id");
+                pokemon["typeDefense"] = BuildPokemonTypeDefense(typeIds, singleTypeDefense);
+                pokemon["descriptions"] = PokemonDescriptionText(flavorTexts, descriptionOverrides, speciesId, CsvValue(pokemonRow, "identifier"));
+                return pokemon;
+            }
+
+            private static Dictionary<string, object> BuildPokemonEvolutionStub(Dictionary<string, string> speciesRow)
+            {
+                var evolution = new Dictionary<string, object>();
+                evolution["pokemonId"] = CsvInt(speciesRow, "id");
+                evolution["familyId"] = CsvInt(speciesRow, "evolution_chain_id");
+                evolution["stageId"] = 0;
+                evolution["stageMax"] = null;
+                evolution["previousPokemonId"] = CsvInt(speciesRow, "evolves_from_species_id");
+                evolution["method"] = null;
+                evolution["stage"] = null;
+                evolution["conditionKind"] = null;
+                evolution["conditionValue"] = null;
+                evolution["condition"] = null;
+                return evolution;
+            }
+
             private static Dictionary<int, Dictionary<string, string>> BuildLocalizedTextMap(CsvTable table, string idColumn, string textColumn)
             {
                 var result = new Dictionary<int, Dictionary<string, string>>();
@@ -1195,6 +1331,40 @@ namespace PodexTools
                     values[languageKey] = CsvValue(row, textColumn);
                 }
                 return result;
+            }
+
+            private static Dictionary<int, Dictionary<string, string>> BuildLatestFlavorTextMap(CsvTable table)
+            {
+                var result = new Dictionary<int, Dictionary<string, string>>();
+                var latestVersion = new Dictionary<string, int>();
+                foreach (Dictionary<string, string> row in table.Rows)
+                {
+                    int id = CsvInt(row, "species_id");
+                    int languageId = CsvInt(row, "language_id");
+                    int versionId = CsvInt(row, "version_id");
+                    string languageKey;
+                    if (id <= 0 || !LanguageKeys.TryGetValue(languageId, out languageKey)) continue;
+                    string text = NormalizeFlavorText(CsvValue(row, "flavor_text"));
+                    if (string.IsNullOrWhiteSpace(text)) continue;
+                    string key = id.ToString(CultureInfo.InvariantCulture) + "|" + languageKey;
+                    int previousVersion;
+                    if (latestVersion.TryGetValue(key, out previousVersion) && previousVersion > versionId) continue;
+                    latestVersion[key] = versionId;
+                    Dictionary<string, string> values;
+                    if (!result.TryGetValue(id, out values))
+                    {
+                        values = new Dictionary<string, string>();
+                        result.Add(id, values);
+                    }
+                    values[languageKey] = text;
+                }
+                return result;
+            }
+
+            private static string NormalizeFlavorText(string value)
+            {
+                if (value == null) return "";
+                return value.Replace("\r", " ").Replace("\n", " ").Replace("\f", " ").Trim();
             }
 
             private static bool HasCompleteChinese(
@@ -1265,15 +1435,19 @@ namespace PodexTools
                     if (sourceId <= 0) continue;
                     string entity = CsvValue(row, "entity");
                     string name = CsvValue(row, "zhCN_name");
+                    string genus = CsvValue(row, "zhCN_genus");
                     string description = CsvValue(row, "zhCN_description");
-                    if (string.IsNullOrWhiteSpace(entity) || (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(description))) continue;
-                    overrides.Add(new ChineseOverride(entity, sourceId, name, description));
+                    if (string.IsNullOrWhiteSpace(entity) || (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(genus) && string.IsNullOrWhiteSpace(description))) continue;
+                    overrides.Add(new ChineseOverride(entity, sourceId, name, genus, description));
                 }
                 return overrides;
             }
 
             private static void ApplyChineseOverrides(
                 List<ChineseOverride> overrides,
+                Dictionary<int, Dictionary<string, string>> pokemonNameMap,
+                Dictionary<int, Dictionary<string, string>> pokemonGenusMap,
+                Dictionary<int, Dictionary<string, string>> pokemonDescriptionOverrides,
                 Dictionary<int, Dictionary<string, string>> moveNameMap,
                 Dictionary<int, Dictionary<string, string>> moveDescriptionOverrides,
                 Dictionary<int, Dictionary<string, string>> abilityNameMap,
@@ -1287,6 +1461,10 @@ namespace PodexTools
                     {
                         ApplyChineseMoveOverride(moveNameMap, moveDescriptionOverrides, row);
                     }
+                    else if (row.Entity.Equals("pokemon", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ApplyChinesePokemonOverride(pokemonNameMap, pokemonGenusMap, pokemonDescriptionOverrides, row);
+                    }
                     else if (row.Entity.Equals("ability", StringComparison.OrdinalIgnoreCase))
                     {
                         ApplyChineseOverride(abilityNameMap, abilityTextMap, row);
@@ -1295,6 +1473,26 @@ namespace PodexTools
                     {
                         ApplyChineseOverride(itemNameMap, itemTextMap, row);
                     }
+                }
+            }
+
+            private static void ApplyChinesePokemonOverride(
+                Dictionary<int, Dictionary<string, string>> names,
+                Dictionary<int, Dictionary<string, string>> genera,
+                Dictionary<int, Dictionary<string, string>> descriptions,
+                ChineseOverride row)
+            {
+                if (!string.IsNullOrWhiteSpace(row.Name))
+                {
+                    EnsureTextMap(names, row.SourceId)["zhCN"] = row.Name;
+                }
+                if (!string.IsNullOrWhiteSpace(row.Genus))
+                {
+                    EnsureTextMap(genera, row.SourceId)["zhCN"] = row.Genus;
+                }
+                if (!string.IsNullOrWhiteSpace(row.Description))
+                {
+                    EnsureTextMap(descriptions, row.SourceId)["zhCN"] = row.Description;
                 }
             }
 
@@ -1362,6 +1560,35 @@ namespace PodexTools
                 return result;
             }
 
+            private static Dictionary<int, Dictionary<string, string>> BuildRowMap(CsvTable table, string idColumn)
+            {
+                var result = new Dictionary<int, Dictionary<string, string>>();
+                foreach (Dictionary<string, string> row in table.Rows)
+                {
+                    int id = CsvInt(row, idColumn);
+                    if (id > 0 && !result.ContainsKey(id)) result.Add(id, row);
+                }
+                return result;
+            }
+
+            private static Dictionary<int, List<Dictionary<string, string>>> BuildRowsByInt(CsvTable table, string idColumn)
+            {
+                var result = new Dictionary<int, List<Dictionary<string, string>>>();
+                foreach (Dictionary<string, string> row in table.Rows)
+                {
+                    int id = CsvInt(row, idColumn);
+                    if (id <= 0) continue;
+                    List<Dictionary<string, string>> rows;
+                    if (!result.TryGetValue(id, out rows))
+                    {
+                        rows = new List<Dictionary<string, string>>();
+                        result.Add(id, rows);
+                    }
+                    rows.Add(row);
+                }
+                return result;
+            }
+
             private static Dictionary<int, Dictionary<string, object>> BuildTypeRefs(Dictionary<string, object> raw)
             {
                 var result = new Dictionary<int, Dictionary<string, object>>();
@@ -1371,6 +1598,77 @@ namespace PodexTools
                     if (type == null) continue;
                     int id = ObjectInt(type.ContainsKey("id") ? type["id"] : null);
                     if (id > 0 && !result.ContainsKey(id)) result.Add(id, type);
+                }
+                return result;
+            }
+
+            private static Dictionary<int, Dictionary<string, object>> BuildNamedRefs(Dictionary<int, Dictionary<string, string>> nameMap)
+            {
+                var result = new Dictionary<int, Dictionary<string, object>>();
+                foreach (KeyValuePair<int, Dictionary<string, string>> entry in nameMap)
+                {
+                    var refObject = new Dictionary<string, object>();
+                    refObject["id"] = entry.Key;
+                    refObject["names"] = entry.Value;
+                    result[entry.Key] = refObject;
+                }
+                return result;
+            }
+
+            private static Dictionary<int, Dictionary<string, object>> BuildNestedNamedRefs(List<object> pokemon, string property)
+            {
+                var result = new Dictionary<int, Dictionary<string, object>>();
+                foreach (object value in pokemon)
+                {
+                    var row = value as Dictionary<string, object>;
+                    if (row == null || !row.ContainsKey(property) || row[property] == null) continue;
+                    if (property == "genderRatio")
+                    {
+                        AddNestedNamedRef(result, row[property]);
+                    }
+                    else
+                    {
+                        foreach (object refValue in RawObjectList(row[property]))
+                        {
+                            AddNestedNamedRef(result, refValue);
+                        }
+                    }
+                }
+                return result;
+            }
+
+            private static void AddNestedNamedRef(Dictionary<int, Dictionary<string, object>> result, object value)
+            {
+                var refObject = value as Dictionary<string, object>;
+                if (refObject == null) return;
+                int id = ObjectInt(refObject.ContainsKey("id") ? refObject["id"] : null);
+                if (id > 0 && !result.ContainsKey(id)) result.Add(id, refObject);
+            }
+
+            private static List<object> RawObjectList(object value)
+            {
+                if (value == null) return new List<object>();
+                object[] array = value as object[];
+                if (array != null) return array.ToList();
+                List<object> list = value as List<object>;
+                if (list != null) return list;
+                return new List<object>();
+            }
+
+            private static Dictionary<int, Dictionary<string, object>> BuildSingleTypeDefense(List<object> pokemon)
+            {
+                var result = new Dictionary<int, Dictionary<string, object>>();
+                foreach (object value in pokemon)
+                {
+                    var row = value as Dictionary<string, object>;
+                    if (row == null || !row.ContainsKey("types") || !row.ContainsKey("typeDefense")) continue;
+                    List<object> types = RawObjectList(row["types"]);
+                    if (types.Count != 1) continue;
+                    var typeRef = types[0] as Dictionary<string, object>;
+                    if (typeRef == null) continue;
+                    int typeId = ObjectInt(typeRef.ContainsKey("id") ? typeRef["id"] : null);
+                    var defense = row["typeDefense"] as Dictionary<string, object>;
+                    if (typeId > 0 && defense != null && !result.ContainsKey(typeId)) result.Add(typeId, defense);
                 }
                 return result;
             }
@@ -1454,6 +1752,189 @@ namespace PodexTools
                 return new Dictionary<string, string> { { "en", identifier }, { "zhCN", identifier } };
             }
 
+            private static Dictionary<string, string> PokemonDescriptionText(
+                Dictionary<int, Dictionary<string, string>> flavorTexts,
+                Dictionary<int, Dictionary<string, string>> descriptionOverrides,
+                int speciesId,
+                string identifier)
+            {
+                var result = new Dictionary<string, string>();
+                Dictionary<string, string> values;
+                if (flavorTexts.TryGetValue(speciesId, out values))
+                {
+                    foreach (KeyValuePair<string, string> value in values)
+                    {
+                        if (!string.IsNullOrWhiteSpace(value.Value)) result[value.Key] = value.Value;
+                    }
+                }
+                if (descriptionOverrides.TryGetValue(speciesId, out values))
+                {
+                    foreach (KeyValuePair<string, string> value in values)
+                    {
+                        if (!string.IsNullOrWhiteSpace(value.Value)) result[value.Key] = value.Value;
+                    }
+                }
+                if (result.Count > 0) return result;
+                return new Dictionary<string, string> { { "en", identifier }, { "zhCN", identifier } };
+            }
+
+            private static Dictionary<string, string> DashNames()
+            {
+                var result = new Dictionary<string, string>();
+                foreach (string key in LanguageKeys.Values.Distinct())
+                {
+                    result[key] = "---";
+                }
+                return result;
+            }
+
+            private static List<object> BuildEggGroups(
+                int speciesId,
+                Dictionary<int, List<Dictionary<string, string>>> eggGroupRowsBySpecies,
+                Dictionary<int, Dictionary<string, object>> eggGroupRefs)
+            {
+                var result = new List<object>();
+                List<Dictionary<string, string>> rows;
+                if (!eggGroupRowsBySpecies.TryGetValue(speciesId, out rows)) return result;
+                foreach (Dictionary<string, string> row in rows.OrderBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "egg_group_id"); }))
+                {
+                    int eggGroupId = CsvInt(row, "egg_group_id");
+                    Dictionary<string, object> refObject;
+                    if (eggGroupRefs.TryGetValue(eggGroupId, out refObject)) result.Add(refObject);
+                }
+                return result;
+            }
+
+            private static Dictionary<string, object> GenderRatioRef(int genderRate, Dictionary<int, Dictionary<string, object>> genderRatioRefs)
+            {
+                int id = GenderRatioId(genderRate);
+                Dictionary<string, object> refObject;
+                if (genderRatioRefs.TryGetValue(id, out refObject)) return refObject;
+                return MakeNamedRef(id, id == 8 ? "无性别" : "未知");
+            }
+
+            private static int GenderRatioId(int genderRate)
+            {
+                switch (genderRate)
+                {
+                    case 8: return 1;
+                    case 7: return 2;
+                    case 6: return 3;
+                    case 4: return 4;
+                    case 2: return 5;
+                    case 1: return 6;
+                    case 0: return 7;
+                    default: return 8;
+                }
+            }
+
+            private static Dictionary<string, object> BuildPokemonAbilities(
+                int pokemonId,
+                Dictionary<int, List<Dictionary<string, string>>> abilityRowsByPokemon,
+                Dictionary<int, Dictionary<string, object>> abilityRefs)
+            {
+                var result = new Dictionary<string, object>();
+                result["primary"] = null;
+                result["secondary"] = null;
+                result["hidden"] = null;
+                List<Dictionary<string, string>> rows;
+                if (!abilityRowsByPokemon.TryGetValue(pokemonId, out rows)) return result;
+                foreach (Dictionary<string, string> row in rows.OrderBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "slot"); }))
+                {
+                    int abilityId = CsvInt(row, "ability_id");
+                    Dictionary<string, object> refObject;
+                    if (!abilityRefs.TryGetValue(abilityId, out refObject)) refObject = MakeNamedRef(abilityId, abilityId.ToString(CultureInfo.InvariantCulture));
+                    if (CsvValue(row, "is_hidden") == "1") result["hidden"] = refObject;
+                    else if (CsvInt(row, "slot") == 2) result["secondary"] = refObject;
+                    else result["primary"] = refObject;
+                }
+                return result;
+            }
+
+            private static Dictionary<string, object> BuildPokemonStats(
+                int pokemonId,
+                Dictionary<int, List<Dictionary<string, string>>> statRowsByPokemon,
+                bool effort)
+            {
+                int hp = 0;
+                int attack = 0;
+                int defense = 0;
+                int specialAttack = 0;
+                int specialDefense = 0;
+                int speed = 0;
+                List<Dictionary<string, string>> rows;
+                if (statRowsByPokemon.TryGetValue(pokemonId, out rows))
+                {
+                    foreach (Dictionary<string, string> row in rows)
+                    {
+                        int value = CsvInt(row, effort ? "effort" : "base_stat");
+                        switch (CsvInt(row, "stat_id"))
+                        {
+                            case 1: hp = value; break;
+                            case 2: attack = value; break;
+                            case 3: defense = value; break;
+                            case 4: specialAttack = value; break;
+                            case 5: specialDefense = value; break;
+                            case 6: speed = value; break;
+                        }
+                    }
+                }
+                var result = new Dictionary<string, object>();
+                result["hp"] = hp;
+                result["attack"] = attack;
+                result["defense"] = defense;
+                result["specialAttack"] = specialAttack;
+                result["specialDefense"] = specialDefense;
+                result["speed"] = speed;
+                result["total"] = hp + attack + defense + specialAttack + specialDefense + speed;
+                return result;
+            }
+
+            private static Dictionary<string, object> BuildMeasurements(int heightDecimeters, int weightHectograms)
+            {
+                var result = new Dictionary<string, object>();
+                double meters = heightDecimeters / 10.0;
+                double inches = meters * 39.3700787;
+                double kilograms = weightHectograms / 10.0;
+                double pounds = kilograms * 2.20462262;
+                result["heightMetric"] = Math.Round(meters, 1);
+                result["heightImperial"] = Math.Round(inches, 1);
+                result["weightMetric"] = Math.Round(kilograms, 1);
+                result["weightImperial"] = Math.Round(pounds, 1);
+                return result;
+            }
+
+            private static Dictionary<string, object> BuildBreedingInfo(Dictionary<string, string> speciesRow, Dictionary<string, string> pokemonRow)
+            {
+                var result = new Dictionary<string, object>();
+                result["hatchCycles"] = CsvInt(speciesRow, "hatch_counter");
+                result["baseTameness"] = CsvInt(speciesRow, "base_happiness");
+                result["exp"] = CsvInt(pokemonRow, "base_experience");
+                result["exp100"] = null;
+                return result;
+            }
+
+            private static Dictionary<string, object> BuildPokemonTypeDefense(List<int> typeIds, Dictionary<int, Dictionary<string, object>> singleTypeDefense)
+            {
+                var result = new Dictionary<string, object>();
+                for (int attackTypeId = 1; attackTypeId <= 18; attackTypeId++)
+                {
+                    double multiplier = 1.0;
+                    foreach (int defenseTypeId in typeIds)
+                    {
+                        Dictionary<string, object> defense;
+                        object value;
+                        if (singleTypeDefense.TryGetValue(defenseTypeId, out defense) && defense.TryGetValue(attackTypeId.ToString(CultureInfo.InvariantCulture), out value))
+                        {
+                            double parsed;
+                            if (double.TryParse(value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out parsed)) multiplier *= parsed;
+                        }
+                    }
+                    result[attackTypeId.ToString(CultureInfo.InvariantCulture)] = multiplier;
+                }
+                return result;
+            }
+
             private static object NullableInt(Dictionary<string, string> row, string column)
             {
                 string value = CsvValue(row, column);
@@ -1512,15 +1993,19 @@ namespace PodexTools
                 return row.TryGetValue(column, out value) ? value : "";
             }
 
-            private static void UpdateMetaCounts(Dictionary<string, object> root, int moves, int abilities, int items)
+            private static void UpdateMetaCounts(Dictionary<string, object> root, int pokemon, int maxNationalDex, int moves, int abilities, int items, int evolutions)
             {
                 Dictionary<string, object> meta = root.ContainsKey("meta") ? root["meta"] as Dictionary<string, object> : null;
                 if (meta == null) return;
+                meta["count"] = pokemon;
+                meta["maxNationalDex"] = maxNationalDex;
                 Dictionary<string, object> counts = meta.ContainsKey("counts") ? meta["counts"] as Dictionary<string, object> : null;
                 if (counts == null) return;
+                counts["pokemon"] = pokemon;
                 counts["moves"] = moves;
                 counts["abilities"] = abilities;
                 counts["items"] = items;
+                counts["evolutions"] = evolutions;
             }
         }
 
