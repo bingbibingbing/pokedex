@@ -155,7 +155,8 @@ function Find-WikiTitle {
       format = "json"
     }
     foreach ($hit in @($result.query.search)) {
-      if ($hit.title -like "*$suffix" -or $Entity -eq "move") {
+      $isExactEntityTitle = -not [string]::IsNullOrWhiteSpace($ChineseName) -and $hit.title -eq $ChineseName
+      if ($hit.title -like "*$suffix" -or $Entity -eq "move" -or $isExactEntityTitle) {
         try {
           $content = Get-WikiText $hit.title
         } catch {
@@ -193,8 +194,13 @@ function Test-WikiPageMatch {
   if ($Entity -eq "ability" -and $Content -notmatch "\{\{特性信息框") {
     return $false
   }
-  if ($Entity -eq "item" -and $Content -notmatch "\{\{道具信息框") {
-    return $false
+  if ($Entity -eq "item") {
+    $hasItemTemplate = $Content -match "\{\{道具信息框" -or
+      $Content -match "\{\{TRtable" -or
+      $Content -match "\{\{TMtable"
+    if (-not $hasItemTemplate) {
+      return $false
+    }
   }
 
   $pageEnglishName = Get-InfoboxField $Content @("enname")
@@ -626,9 +632,43 @@ function Get-ItemBagDescriptionFromSection {
   return $bestDescription
 }
 
+function Get-ItemMachineDescription {
+  param(
+    [string]$Content,
+    [string]$Identifier = ""
+  )
+
+  $value = Use-ZhHans $Content
+  $isRecord = $Identifier -match "^tr\d{2}$" -or $value -match "\{\{TRtable"
+  $isMachine = $Identifier -match "^tm\d{2}$" -or $value -match "\{\{TMtable"
+  if (-not $isRecord -and -not $isMachine) {
+    return ""
+  }
+
+  $moveName = ""
+  foreach ($match in [regex]::Matches($value, "(?m)^\|\s*move\d+\s*=\s*(?<move>.+?)\s*$")) {
+    $candidate = Convert-WikiTextToPlain $match.Groups["move"].Value
+    if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+      $moveName = $candidate
+    }
+  }
+  if ([string]::IsNullOrWhiteSpace($moveName)) {
+    return ""
+  }
+
+  if ($isRecord) {
+    return "收录着招式「$($moveName)」的招式记录。使用后能让宝可梦学会这个招式，用过之后就会消失。"
+  }
+  return "收录着招式「$($moveName)」的招式学习器。使用后能让宝可梦学会这个招式，可以使用多次。"
+}
+
 function Get-EntityName {
   param([string]$Content)
-  return Get-InfoboxField $Content @("name")
+  $name = Get-InfoboxField $Content @("name")
+  if ([string]::IsNullOrWhiteSpace($name)) {
+    $name = Get-ItemTemplateField $Content 1
+  }
+  return $name
 }
 
 function Get-EntityDescription {
@@ -662,6 +702,9 @@ function Get-EntityDescription {
 
   if ($Entity -eq "item") {
     $description = Get-ItemBagDescription $Content $Identifier
+    if ([string]::IsNullOrWhiteSpace($description)) {
+      $description = Get-ItemMachineDescription $Content $Identifier
+    }
     if ([string]::IsNullOrWhiteSpace($description)) {
       $description = Convert-WikiTextToPlain (Get-SectionBody $Content "使用效果")
     }
