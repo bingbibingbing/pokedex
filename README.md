@@ -93,7 +93,18 @@ artifacts\missing-chinese.csv
 
 Downloaded CSV files are cached under `tools\import-data\source-cache` and are ignored by Git.
 By default, the preview JSON refuses English fallback and skips new rows that lack zh-CN names or descriptions.
-The preview JSON adds new moves, abilities, and items only; it does not import Pokemon forms, evolutions, or learnsets yet.
+The preview JSON adds new moves, abilities, items, and Gen 8/9 default Pokemon. Extra forms, complete evolutions, and new learnsets are still handled as later import phases.
+
+## Pokemon Sprites
+
+Pokemon images are bundled so the desktop app remains portable. To rebuild the Gen 8/9 default Pokemon sprites from PokeAPI's sprite repository:
+
+```powershell
+.\tools\fetch-pokeapi-sprites.ps1 -From 808 -To 1025
+.\tools\validate-data.ps1 -DataPath artifacts\pokemon-catalog-preview.json
+```
+
+The script writes `assets\images\pokemon\small\{id}.png` as `40x32` icons and `assets\images\pokemon\big\{id}.png` as `100x100` sprites, matching the legacy image layout used by the WinForms client.
 
 ## Chinese Overrides
 
