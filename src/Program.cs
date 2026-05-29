@@ -61,6 +61,15 @@ namespace PodexDesktop
         private int moveFilterConditionSortColumn;
         private bool moveFilterConditionSortAscending = true;
         private int moveFilterGameId = -1;
+        private string moveModuleFilterSearchText = "";
+        private string moveModulePowerFilter;
+        private string moveModuleAccuracyFilter;
+        private string moveModulePpFilter;
+        private string moveModulePriorityFilter;
+        private string moveModuleMachineFilter;
+        private int moveModuleTypeFilterId = -1;
+        private int moveModuleCategoryFilterId = -1;
+        private string moveModuleRangeFilter;
         private string abilityFilterSearchText = "";
         private int abilityFilterTriggerId = -1;
         private int abilityFilterTargetId = -1;
@@ -631,8 +640,10 @@ namespace PodexDesktop
             {
                 foreach (var m in root.moves.Where(m =>
                     Match(query, MoveSearchText(m)) &&
+                    Match(moveModuleFilterSearchText.Trim().ToLowerInvariant(), MoveSearchText(m)) &&
                     (typeId.Length == 0 || (m.type != null && m.type.id.ToString() == typeId)) &&
-                    (generation.Length == 0 || m.generation.ToString() == generation)))
+                    (generation.Length == 0 || m.generation.ToString() == generation) &&
+                    MoveMatchesDetailFilters(m)))
                 {
                     AddMoveRow(m);
                 }
@@ -732,6 +743,33 @@ namespace PodexDesktop
             if (abilityFilterTargetId > 0 && (ability.target == null || ability.target.id != abilityFilterTargetId)) return false;
             if (abilityFilterEffectOnId > 0 && (ability.effectOn == null || ability.effectOn.id != abilityFilterEffectOnId)) return false;
             return true;
+        }
+
+        private bool MoveMatchesDetailFilters(MoveEntry move)
+        {
+            if (moveModulePowerFilter != null && MoveValue(move.power) != moveModulePowerFilter) return false;
+            if (moveModuleAccuracyFilter != null && MoveValue(move.accuracy) != moveModuleAccuracyFilter) return false;
+            if (moveModulePpFilter != null && MoveValue(move.pp) != moveModulePpFilter) return false;
+            if (moveModulePriorityFilter != null && MoveValue(move.priority) != moveModulePriorityFilter) return false;
+            if (moveModuleTypeFilterId > 0 && (move.type == null || move.type.id != moveModuleTypeFilterId)) return false;
+            if (moveModuleCategoryFilterId > 0 && (move.category == null || move.category.id != moveModuleCategoryFilterId)) return false;
+            if (moveModuleRangeFilter != null && MoveValue(move.rangeId) != moveModuleRangeFilter) return false;
+            if (moveModuleMachineFilter != null && !MoveMatchesMachineFilter(move)) return false;
+            return true;
+        }
+
+        private bool MoveMatchesMachineFilter(MoveEntry move)
+        {
+            List<LearnsetEntry> rows;
+            if (!learnsetsByMoveId.TryGetValue(move.id, out rows)) return false;
+            int gameId = CurrentMoveFilterGameId();
+            foreach (var row in rows)
+            {
+                if (row.gameId != gameId) continue;
+                if (moveModuleMachineFilter == "招式" && row.levelId >= 101 && row.levelId <= 200) return true;
+                if (moveModuleMachineFilter == "秘传" && row.levelId >= 201 && row.levelId <= 250) return true;
+            }
+            return false;
         }
 
         private string BuildStatus()
@@ -2301,7 +2339,7 @@ namespace PodexDesktop
                 Margin = new Padding(0)
             };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 172));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 360));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             var top = new TableLayoutPanel
@@ -2361,33 +2399,36 @@ namespace PodexDesktop
                 BackColor = Color.FromArgb(255, 250, 237)
             };
 
-            var panel = new TableLayoutPanel
+            var stack = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                ColumnCount = 4,
-                RowCount = 6,
+                AutoScroll = true,
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
                 Padding = new Padding(4, 2, 4, 4),
                 BackColor = Color.FromArgb(255, 250, 237)
             };
-            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
-            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 70));
-            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
-            for (int i = 0; i < 6; i++) panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 25));
-
-            AddMoveFilterSearchRow(panel, 0);
-            AddMoveFilterValueRow(panel, 1, "威力", MoveValue(move.power));
-            AddMoveFilterValueRow(panel, 2, "命中", MoveValue(move.accuracy));
-            AddMoveFilterValueRow(panel, 3, "PP", MoveValue(move.pp));
-            AddMoveFilterValueRow(panel, 4, "世代", "第" + move.generation + "世代");
-            AddMoveFilterValueRow(panel, 5, "优先级", MoveValue(move.priority));
-
-            group.Controls.Add(panel);
+            stack.Controls.Add(MakeMoveFilterSearchPanel());
+            stack.Controls.Add(MakeMoveFilterValuePanel("威力", MoveValue(move.power), moveModulePowerFilter, delegate(string value) { moveModulePowerFilter = value; }));
+            stack.Controls.Add(MakeMoveFilterValuePanel("命中", MoveValue(move.accuracy), moveModuleAccuracyFilter, delegate(string value) { moveModuleAccuracyFilter = value; }));
+            stack.Controls.Add(MakeMoveFilterValuePanel("PP", MoveValue(move.pp), moveModulePpFilter, delegate(string value) { moveModulePpFilter = value; }));
+            stack.Controls.Add(MakeMoveFilterValuePanel("优先级", MoveValue(move.priority), moveModulePriorityFilter, delegate(string value) { moveModulePriorityFilter = value; }));
+            stack.Controls.Add(MakeMoveFilterChoicePanel("招式 / 秘传", new[] { "招式", "秘传" }, moveModuleMachineFilter, delegate(string value) { moveModuleMachineFilter = value; }));
+            stack.Controls.Add(MakeMoveFilterSection("属性", MakeMoveTypeFilterButtons()));
+            stack.Controls.Add(MakeMoveFilterSection("分类", MakeMoveCategoryFilterButtons()));
+            stack.Controls.Add(MakeMoveFilterSection("效果对象", MakeMoveRangeFilterButtons()));
+            stack.Resize += delegate
+            {
+                int width = Math.Max(220, stack.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 8);
+                foreach (Control control in stack.Controls) control.Width = width;
+            };
+            group.Controls.Add(stack);
             return group;
         }
 
-        private static void AddMoveFilterSearchRow(TableLayoutPanel panel, int row)
+        private Control MakeMoveFilterSearchPanel()
         {
+            var panel = MakeMoveFilterRowPanel();
             panel.Controls.Add(new Label
             {
                 Text = "⌕",
@@ -2396,21 +2437,31 @@ namespace PodexDesktop
                 ForeColor = Color.FromArgb(40, 79, 145),
                 Font = new Font("Segoe UI", 15f, FontStyle.Bold),
                 Margin = new Padding(0)
-            }, 0, row);
+            }, 0, 0);
             var search = new TextBox
             {
                 Dock = DockStyle.Fill,
                 BorderStyle = BorderStyle.FixedSingle,
+                Text = moveModuleFilterSearchText,
                 Margin = new Padding(0, 2, 4, 2)
             };
-            panel.Controls.Add(search, 1, row);
+            search.TextChanged += delegate
+            {
+                moveModuleFilterSearchText = search.Text;
+                ApplyFilters();
+            };
+            panel.Controls.Add(search, 1, 0);
             panel.SetColumnSpan(search, 2);
-            panel.Controls.Add(MakeDisabledFilterButton(), 3, row);
+            panel.Controls.Add(MakeMoveFilterToggleButton(null), 3, 0);
+            return panel;
         }
 
-        private static void AddMoveFilterValueRow(TableLayoutPanel panel, int row, string label, string value)
+        private Control MakeMoveFilterValuePanel(string label, string value, string activeValue, Action<string> setFilter)
         {
-            panel.Controls.Add(new CheckBox { Dock = DockStyle.Fill, Enabled = false, Margin = new Padding(0, 5, 0, 0) }, 0, row);
+            var panel = MakeMoveFilterRowPanel();
+            string displayValue = activeValue ?? (string.IsNullOrWhiteSpace(value) ? "--" : value);
+            var check = new CheckBox { Dock = DockStyle.Fill, Checked = activeValue != null, Margin = new Padding(0, 6, 0, 0) };
+            panel.Controls.Add(check, 0, 0);
             panel.Controls.Add(new Label
             {
                 Text = label,
@@ -2419,28 +2470,208 @@ namespace PodexDesktop
                 ForeColor = Color.FromArgb(23, 32, 27),
                 Font = new Font("Segoe UI", 9f),
                 Margin = new Padding(0)
-            }, 1, row);
+            }, 1, 0);
             var text = new TextBox
             {
                 Dock = DockStyle.Fill,
                 ReadOnly = true,
                 BorderStyle = BorderStyle.FixedSingle,
-                Text = string.IsNullOrWhiteSpace(value) ? "--" : value,
+                Text = displayValue,
                 BackColor = Color.FromArgb(230, 230, 230),
-                Margin = new Padding(0, 2, 4, 2)
+                Margin = new Padding(0, 3, 4, 3)
             };
-            panel.Controls.Add(text, 2, row);
-            panel.Controls.Add(MakeDisabledFilterButton(), 3, row);
+            panel.Controls.Add(text, 2, 0);
+            Button toggle = MakeMoveFilterToggleButton(check);
+            panel.Controls.Add(toggle, 3, 0);
+
+            Action apply = delegate
+            {
+                toggle.Text = check.Checked ? "-" : "+";
+                setFilter(check.Checked ? text.Text : null);
+                ApplyFilters();
+            };
+
+            check.CheckedChanged += delegate { apply(); };
+            toggle.Click += delegate { check.Checked = !check.Checked; };
+            return panel;
         }
 
-        private static Button MakeDisabledFilterButton()
+        private Control MakeMoveFilterChoicePanel(string label, string[] values, string activeValue, Action<string> setFilter)
+        {
+            var panel = MakeMoveFilterRowPanel();
+            var check = new CheckBox { Dock = DockStyle.Fill, Checked = activeValue != null, Margin = new Padding(0, 6, 0, 0) };
+            panel.Controls.Add(check, 0, 0);
+            panel.Controls.Add(new Label
+            {
+                Text = label,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                ForeColor = Color.FromArgb(23, 32, 27),
+                Font = new Font("Segoe UI", 9f),
+                Margin = new Padding(0)
+            }, 1, 0);
+            var combo = new ComboBox
+            {
+                Dock = DockStyle.Fill,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Enabled = activeValue != null,
+                Margin = new Padding(0, 3, 4, 3)
+            };
+            foreach (string value in values) combo.Items.Add(value);
+            combo.SelectedItem = activeValue ?? values[0];
+            panel.Controls.Add(combo, 2, 0);
+            Button toggle = MakeMoveFilterToggleButton(check);
+            panel.Controls.Add(toggle, 3, 0);
+
+            Action apply = delegate
+            {
+                combo.Enabled = check.Checked;
+                toggle.Text = check.Checked ? "-" : "+";
+                setFilter(check.Checked ? (combo.SelectedItem == null ? values[0] : combo.SelectedItem.ToString()) : null);
+                ApplyFilters();
+            };
+            check.CheckedChanged += delegate { apply(); };
+            combo.SelectedIndexChanged += delegate { if (check.Checked) apply(); };
+            toggle.Click += delegate { check.Checked = !check.Checked; };
+            return panel;
+        }
+
+        private static TableLayoutPanel MakeMoveFilterRowPanel()
+        {
+            var panel = new TableLayoutPanel
+            {
+                Height = 28,
+                ColumnCount = 4,
+                RowCount = 1,
+                Margin = new Padding(0, 0, 0, 1),
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 82));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
+            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            return panel;
+        }
+
+        private Control MakeMoveFilterSection(string title, Control content)
+        {
+            var panel = new Panel
+            {
+                Height = title == "属性" ? 96 : 48,
+                Margin = new Padding(0, 3, 0, 3),
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            var label = new Label
+            {
+                Text = title,
+                Dock = DockStyle.Top,
+                Height = 18,
+                ForeColor = Color.FromArgb(23, 32, 27),
+                Font = new Font("Segoe UI", 9f),
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            content.Dock = DockStyle.Fill;
+            panel.Controls.Add(content);
+            panel.Controls.Add(label);
+            return panel;
+        }
+
+        private Control MakeMoveTypeFilterButtons()
+        {
+            var panel = MakeMoveButtonWrapPanel();
+            foreach (var type in root.types.OrderBy(t => t.id))
+            {
+                var button = MakeMoveFilterTextButton(LocalName(type.names), TypeColor(type.id), Color.White, moveModuleTypeFilterId == type.id);
+                int typeId = type.id;
+                button.Click += delegate
+                {
+                    moveModuleTypeFilterId = moveModuleTypeFilterId == typeId ? -1 : typeId;
+                    ApplyFilters();
+                };
+                panel.Controls.Add(button);
+            }
+            return panel;
+        }
+
+        private Control MakeMoveCategoryFilterButtons()
+        {
+            var panel = MakeMoveButtonWrapPanel();
+            foreach (var category in root.moves.Where(m => m.category != null).Select(m => m.category).GroupBy(c => c.id).Select(g => g.First()).OrderBy(c => c.id))
+            {
+                string name = LocalName(category.names);
+                var button = MakeMoveFilterTextButton(name, CategoryColor(name), Color.White, moveModuleCategoryFilterId == category.id);
+                int categoryId = category.id;
+                button.Click += delegate
+                {
+                    moveModuleCategoryFilterId = moveModuleCategoryFilterId == categoryId ? -1 : categoryId;
+                    ApplyFilters();
+                };
+                panel.Controls.Add(button);
+            }
+            return panel;
+        }
+
+        private Control MakeMoveRangeFilterButtons()
+        {
+            var panel = MakeMoveButtonWrapPanel();
+            foreach (string rangeValue in root.moves.Select(m => MoveValue(m.rangeId)).Where(v => v != "--").Distinct().OrderBy(v => v))
+            {
+                var button = new Button
+                {
+                    Width = 42,
+                    Height = 22,
+                    Margin = new Padding(1),
+                    Text = rangeValue,
+                    BackColor = moveModuleRangeFilter == rangeValue ? Color.FromArgb(216, 230, 247) : Color.FromArgb(240, 240, 240)
+                };
+                button.Click += delegate
+                {
+                    moveModuleRangeFilter = moveModuleRangeFilter == rangeValue ? null : rangeValue;
+                    ApplyFilters();
+                };
+                panel.Controls.Add(button);
+            }
+            return panel;
+        }
+
+        private static FlowLayoutPanel MakeMoveButtonWrapPanel()
+        {
+            return new FlowLayoutPanel
+            {
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = true,
+                AutoScroll = false,
+                Padding = new Padding(0, 20, 0, 0),
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+        }
+
+        private static Button MakeMoveFilterTextButton(string text, Color backColor, Color foreColor, bool selected)
+        {
+            var button = new Button
+            {
+                Width = 50,
+                Height = 22,
+                Margin = new Padding(1),
+                Text = text,
+                BackColor = backColor,
+                ForeColor = foreColor,
+                FlatStyle = FlatStyle.Flat
+            };
+            button.FlatAppearance.BorderColor = selected ? Color.FromArgb(0, 75, 180) : Color.FromArgb(190, 190, 190);
+            button.FlatAppearance.BorderSize = selected ? 2 : 1;
+            return button;
+        }
+
+        private static Button MakeMoveFilterToggleButton(CheckBox check)
         {
             return new Button
             {
-                Text = "+",
+                Text = check != null && check.Checked ? "-" : "+",
                 Dock = DockStyle.Fill,
-                Enabled = false,
-                Margin = new Padding(1, 2, 0, 2)
+                Enabled = check != null,
+                Margin = new Padding(1, 3, 0, 3)
             };
         }
 
