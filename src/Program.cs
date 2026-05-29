@@ -61,6 +61,10 @@ namespace PodexDesktop
         private int moveFilterConditionSortColumn;
         private bool moveFilterConditionSortAscending = true;
         private int moveFilterGameId = -1;
+        private string abilityFilterSearchText = "";
+        private int abilityFilterTriggerId = -1;
+        private int abilityFilterTargetId = -1;
+        private int abilityFilterEffectOnId = -1;
 
         public MainForm()
         {
@@ -505,6 +509,7 @@ namespace PodexDesktop
                 titleLabel.Text = "特性";
                 list.Columns.Add("#", 56);
                 list.Columns.Add("名字", 138);
+                list.Columns.Add("描述", 300);
             }
             else if (module == "items")
             {
@@ -614,7 +619,9 @@ namespace PodexDesktop
             {
                 foreach (var a in root.abilities.Where(a =>
                     Match(query, AbilitySearchText(a)) &&
-                    (generation.Length == 0 || a.generation.ToString() == generation)))
+                    Match(abilityFilterSearchText.Trim().ToLowerInvariant(), AbilitySearchText(a)) &&
+                    (generation.Length == 0 || a.generation.ToString() == generation) &&
+                    AbilityMatchesDetailFilters(a)))
                 {
                     AddAbilityRow(a);
                 }
@@ -695,6 +702,14 @@ namespace PodexDesktop
             if (module == "type-effect") return root.types.Count;
             if (module == "natures") return root.natures.Count;
             return 0;
+        }
+
+        private bool AbilityMatchesDetailFilters(AbilityEntry ability)
+        {
+            if (abilityFilterTriggerId > 0 && (ability.trigger == null || ability.trigger.id != abilityFilterTriggerId)) return false;
+            if (abilityFilterTargetId > 0 && (ability.target == null || ability.target.id != abilityFilterTargetId)) return false;
+            if (abilityFilterEffectOnId > 0 && (ability.effectOn == null || ability.effectOn.id != abilityFilterEffectOnId)) return false;
+            return true;
         }
 
         private string BuildStatus()
@@ -783,6 +798,7 @@ namespace PodexDesktop
         {
             var item = new ListViewItem(a.id.ToString());
             item.SubItems.Add(LocalName(a.names));
+            item.SubItems.Add(LocalName(a.descriptions));
             item.Tag = a;
             list.Items.Add(item);
         }
@@ -2309,7 +2325,7 @@ namespace PodexDesktop
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 4,
-                RowCount = 5,
+                RowCount = 4,
                 Padding = new Padding(4, 2, 4, 4),
                 BackColor = Color.FromArgb(255, 250, 237)
             };
@@ -2317,43 +2333,49 @@ namespace PodexDesktop
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 86));
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
-            for (int i = 0; i < 5; i++) panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+            for (int i = 0; i < 4; i++) panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
 
-            AddAbilityFilterRow(panel, 0, "", "", true);
-            AddAbilityFilterRow(panel, 1, "世代", "第" + ability.generation + "世代", false);
-            AddAbilityFilterRow(panel, 2, "发动时间", ability.trigger == null ? "--" : LocalName(ability.trigger.names), false);
-            AddAbilityFilterRow(panel, 3, "效果对象", ability.target == null ? "--" : LocalName(ability.target.names), false);
-            AddAbilityFilterRow(panel, 4, "特性效果", ability.effectOn == null ? "--" : LocalName(ability.effectOn.names), false);
+            AddAbilityFilterSearchRow(panel, 0);
+            AddAbilityFilterOptionRow(panel, 1, "发动时间", AbilityFilterOptions(a => a.trigger), ability.trigger == null ? -1 : ability.trigger.id, abilityFilterTriggerId, delegate(int id) { abilityFilterTriggerId = id; });
+            AddAbilityFilterOptionRow(panel, 2, "效果对象", AbilityFilterOptions(a => a.target), ability.target == null ? -1 : ability.target.id, abilityFilterTargetId, delegate(int id) { abilityFilterTargetId = id; });
+            AddAbilityFilterOptionRow(panel, 3, "特性效果", AbilityFilterOptions(a => a.effectOn), ability.effectOn == null ? -1 : ability.effectOn.id, abilityFilterEffectOnId, delegate(int id) { abilityFilterEffectOnId = id; });
 
             group.Controls.Add(panel);
             return group;
         }
 
-        private static void AddAbilityFilterRow(TableLayoutPanel panel, int row, string label, string value, bool searchRow)
+        private void AddAbilityFilterSearchRow(TableLayoutPanel panel, int row)
         {
-            if (searchRow)
+            panel.Controls.Add(new Label
             {
-                panel.Controls.Add(new Label
-                {
-                    Text = "⌕",
-                    Dock = DockStyle.Fill,
-                    TextAlign = ContentAlignment.MiddleCenter,
-                    ForeColor = Color.FromArgb(40, 79, 145),
-                    Font = new Font("Segoe UI", 15f, FontStyle.Bold),
-                    Margin = new Padding(0)
-                }, 0, row);
-                panel.Controls.Add(new TextBox
-                {
-                    Dock = DockStyle.Fill,
-                    BorderStyle = BorderStyle.FixedSingle,
-                    Margin = new Padding(0, 2, 3, 2)
-                }, 1, row);
-                panel.SetColumnSpan(panel.GetControlFromPosition(1, row), 2);
-                panel.Controls.Add(MakeAbilityFilterPlusButton(), 3, row);
-                return;
-            }
+                Text = "⌕",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleCenter,
+                ForeColor = Color.FromArgb(40, 79, 145),
+                Font = new Font("Segoe UI", 15f, FontStyle.Bold),
+                Margin = new Padding(0)
+            }, 0, row);
+            var search = new TextBox
+            {
+                Dock = DockStyle.Fill,
+                BorderStyle = BorderStyle.FixedSingle,
+                Text = abilityFilterSearchText,
+                Margin = new Padding(0, 2, 3, 2)
+            };
+            search.TextChanged += delegate
+            {
+                abilityFilterSearchText = search.Text;
+                ApplyFilters();
+            };
+            panel.Controls.Add(search, 1, row);
+            panel.SetColumnSpan(search, 2);
+            panel.Controls.Add(MakeAbilityFilterToggleButton(null, null), 3, row);
+        }
 
-            panel.Controls.Add(new CheckBox { Dock = DockStyle.Fill, Margin = new Padding(0, 4, 0, 0) }, 0, row);
+        private void AddAbilityFilterOptionRow(TableLayoutPanel panel, int row, string label, List<NamedRef> options, int preferredId, int selectedId, Action<int> setFilter)
+        {
+            var check = new CheckBox { Dock = DockStyle.Fill, Checked = selectedId > 0, Margin = new Padding(0, 4, 0, 0) };
+            panel.Controls.Add(check, 0, row);
             panel.Controls.Add(new Label
             {
                 Text = label,
@@ -2363,26 +2385,81 @@ namespace PodexDesktop
                 Font = new Font("Segoe UI", 9f),
                 Margin = new Padding(0)
             }, 1, row);
-            panel.Controls.Add(new ComboBox
+
+            var combo = new ComboBox
             {
                 Dock = DockStyle.Fill,
                 DropDownStyle = ComboBoxStyle.DropDownList,
-                Enabled = false,
-                Text = value,
+                Enabled = selectedId > 0,
                 Margin = new Padding(0, 1, 3, 1)
-            }, 2, row);
-            panel.Controls.Add(MakeAbilityFilterPlusButton(), 3, row);
+            };
+            foreach (var option in options)
+            {
+                combo.Items.Add(new IdOption(option.id, LocalName(option.names)));
+            }
+            SelectAbilityFilterOption(combo, selectedId > 0 ? selectedId : preferredId);
+            panel.Controls.Add(combo, 2, row);
+
+            Button toggle = MakeAbilityFilterToggleButton(check, combo);
+            panel.Controls.Add(toggle, 3, row);
+
+            Action apply = delegate
+            {
+                combo.Enabled = check.Checked;
+                toggle.Text = check.Checked ? "-" : "+";
+                int id = -1;
+                var selected = combo.SelectedItem as IdOption;
+                if (check.Checked && selected != null) id = selected.Id;
+                setFilter(id);
+                ApplyFilters();
+            };
+
+            check.CheckedChanged += delegate { apply(); };
+            combo.SelectedIndexChanged += delegate { if (check.Checked) apply(); };
+            toggle.Click += delegate
+            {
+                check.Checked = !check.Checked;
+            };
         }
 
-        private static Button MakeAbilityFilterPlusButton()
+        private static Button MakeAbilityFilterToggleButton(CheckBox check, ComboBox combo)
         {
             return new Button
             {
-                Text = "+",
+                Text = check != null && check.Checked ? "-" : "+",
                 Dock = DockStyle.Fill,
-                Enabled = false,
+                Enabled = check != null && combo != null,
                 Margin = new Padding(1, 2, 0, 2)
             };
+        }
+
+        private List<NamedRef> AbilityFilterOptions(Func<AbilityEntry, NamedRef> selector)
+        {
+            var options = new Dictionary<int, NamedRef>();
+            foreach (var ability in root.abilities)
+            {
+                NamedRef value = selector(ability);
+                if (value != null && !options.ContainsKey(value.id))
+                {
+                    options.Add(value.id, value);
+                }
+            }
+            return options.Values.OrderBy(v => LocalName(v.names)).ToList();
+        }
+
+        private static void SelectAbilityFilterOption(ComboBox combo, int id)
+        {
+            int fallback = combo.Items.Count > 0 ? 0 : -1;
+            for (int i = 0; i < combo.Items.Count; i++)
+            {
+                var option = combo.Items[i] as IdOption;
+                if (option != null && option.Id == id)
+                {
+                    combo.SelectedIndex = i;
+                    return;
+                }
+            }
+            if (fallback >= 0) combo.SelectedIndex = fallback;
         }
 
         private DataGridView MakeAbilityPokemonGrid()
