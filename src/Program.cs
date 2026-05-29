@@ -2141,6 +2141,13 @@ namespace PodexDesktop
                 column.SortMode = DataGridViewColumnSortMode.Programmatic;
             }
             grid.Resize += delegate { ResizeLegacyMoveGridColumns(grid); };
+            grid.CellDoubleClick += delegate(object sender, DataGridViewCellEventArgs e)
+            {
+                if (e.RowIndex >= 0 && e.RowIndex < grid.Rows.Count && grid.Rows[e.RowIndex].Tag is int)
+                {
+                    NavigateToMove((int)grid.Rows[e.RowIndex].Tag);
+                }
+            };
             return grid;
         }
 
@@ -2193,6 +2200,7 @@ namespace PodexDesktop
                     LoadCellImage(move == null ? "" : MoveRangeImagePath(move.rangeId)),
                     move == null ? "--" : ValueOrDash(move.priority)
                 );
+                grid.Rows[rowIndex].Tag = row.moveId;
                 ApplyMoveTooltip(grid.Rows[rowIndex], move);
             }
 
@@ -2396,6 +2404,7 @@ namespace PodexDesktop
                 item.SubItems.Add(move == null ? "--" : ValueOrDash(move.power));
                 item.SubItems.Add(move == null ? "--" : ValueOrDash(move.accuracy));
                 item.SubItems.Add(move == null ? "--" : ValueOrDash(move.pp));
+                item.Tag = row.moveId;
                 grid.Items.Add(item);
             }
 
@@ -2403,6 +2412,12 @@ namespace PodexDesktop
             {
                 grid.Items.Add(new ListViewItem(new[] { "...", "已截断", "请用搜索/版本过滤进一步缩小", "", "", "", "", "" }));
             }
+
+            grid.DoubleClick += delegate
+            {
+                if (grid.SelectedItems.Count == 0 || !(grid.SelectedItems[0].Tag is int)) return;
+                NavigateToMove((int)grid.SelectedItems[0].Tag);
+            };
 
             page.Controls.Add(grid);
             return page;
@@ -3942,7 +3957,44 @@ namespace PodexDesktop
             ShowDetails(target);
         }
 
+        private void NavigateToMove(int moveId)
+        {
+            MoveEntry target;
+            if (!movesById.TryGetValue(moveId, out target)) return;
+
+            ResetMoveModuleFilters();
+            SelectModule("moves");
+
+            foreach (ListViewItem item in list.Items)
+            {
+                var move = item.Tag as MoveEntry;
+                if (move == null || move.id != moveId) continue;
+                SelectListItem(item, target);
+                return;
+            }
+
+            ShowDetails(target);
+        }
+
+        private void ResetMoveModuleFilters()
+        {
+            moveModuleFilterSearchText = "";
+            moveModulePowerFilter.Reset();
+            moveModuleAccuracyFilter.Reset();
+            moveModulePpFilter.Reset();
+            moveModulePriorityFilter.Reset();
+            moveModuleMachineFilter = null;
+            moveModuleTypeFilterId = -1;
+            moveModuleCategoryFilterId = -1;
+            moveModuleRangeFilter = null;
+        }
+
         private void SelectPokemonListItem(ListViewItem targetItem, PokemonEntry target)
+        {
+            SelectListItem(targetItem, target);
+        }
+
+        private void SelectListItem(ListViewItem targetItem, object target)
         {
             suppressListSelectionChanged = true;
             list.BeginUpdate();
@@ -4507,6 +4559,14 @@ namespace PodexDesktop
         public MoveNumericFilter()
         {
             Operator = "=";
+            ValueText = "0";
+        }
+
+        public void Reset()
+        {
+            Enabled = false;
+            Operator = "=";
+            Value = 0;
             ValueText = "0";
         }
 
