@@ -89,6 +89,7 @@ namespace PodexDesktop
         private bool suppressAutoSelectFirstItem;
         private ListViewItem tooltipListItem;
         private int tooltipSubItemIndex = -1;
+        private static readonly Font OriginalNameFont = new Font("SimSun", 9f, FontStyle.Regular);
         private static readonly PropertyInfo DoubleBufferedProperty = typeof(Control).GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic);
         private static readonly Dictionary<IntPtr, int> RedrawSuspendDepth = new Dictionary<IntPtr, int>();
 
@@ -627,7 +628,7 @@ namespace PodexDesktop
             else
             {
                 int padding = e.ColumnIndex == 0 ? 4 : (e.ColumnIndex >= 3 && e.ColumnIndex <= 4 ? 2 : 4);
-                Font font = (e.ColumnIndex >= 3 || e.ColumnIndex == 0) ? e.SubItem.Font : list.Font;
+                Font font = e.ColumnIndex == 2 ? OriginalNameFont : ((e.ColumnIndex >= 3 || e.ColumnIndex == 0) ? e.SubItem.Font : list.Font);
                 DrawListCellText(e.Graphics, e.Bounds, e.SubItem.Text, foreColor, padding, font);
             }
 
@@ -653,7 +654,7 @@ namespace PodexDesktop
             }
             else
             {
-                Font font = e.ColumnIndex >= 2 ? e.SubItem.Font : list.Font;
+                Font font = e.ColumnIndex == 1 ? OriginalNameFont : (e.ColumnIndex >= 2 ? e.SubItem.Font : list.Font);
                 DrawListCellText(e.Graphics, e.Bounds, e.SubItem.Text, foreColor, 4, font);
             }
         }
@@ -4545,13 +4546,18 @@ namespace PodexDesktop
 
         private static DataGridViewTextBoxColumn MakeTextColumn(string name, string title, int width)
         {
-            return new DataGridViewTextBoxColumn
+            var column = new DataGridViewTextBoxColumn
             {
                 Name = name,
                 HeaderText = title,
                 Width = width,
                 SortMode = DataGridViewColumnSortMode.NotSortable
             };
+            if (name == "name" || name == "move")
+            {
+                column.DefaultCellStyle.Font = OriginalNameFont;
+            }
+            return column;
         }
 
         private static DataGridViewImageColumn MakeImageColumn(string name, string title, int width)
