@@ -34,6 +34,7 @@ namespace PodexDesktop
         private readonly ImageList itemSmallImages = new ImageList();
         private readonly ToolTip abilityToolTip = new ToolTip();
         private SplitContainer mainSplit;
+        private TableLayoutPanel topFilters;
 
         private RootData root = new RootData();
         private string imageRoot = "";
@@ -137,6 +138,7 @@ namespace PodexDesktop
                 ColumnCount = 3,
                 RowCount = 2
             };
+            topFilters = filters;
             filters.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55));
             filters.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22));
             filters.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 23));
@@ -210,6 +212,7 @@ namespace PodexDesktop
         private void ApplyOriginalLikeSplitter()
         {
             if (mainSplit == null || mainSplit.Width <= 0) return;
+            if (mainSplit.Panel1Collapsed || IsMatrixModule()) return;
 
             int total = Math.Max(0, mainSplit.Width - mainSplit.SplitterWidth);
             int panel1Min = module == "moves" ? 440 : 520;
@@ -470,6 +473,7 @@ namespace PodexDesktop
             module = key;
             sortColumn = -1;
             sortAscending = true;
+            ConfigureModuleChrome();
             rebuildingFilters = true;
             searchBox.Clear();
             rebuildingFilters = false;
@@ -477,6 +481,23 @@ namespace PodexDesktop
             BuildFilters();
             ApplyFilters();
             ApplyOriginalLikeSplitter();
+        }
+
+        private void ConfigureModuleChrome()
+        {
+            bool matrixModule = IsMatrixModule();
+            if (topFilters != null) topFilters.Visible = !matrixModule;
+            if (mainSplit != null)
+            {
+                mainSplit.Panel1Collapsed = matrixModule;
+            }
+            details.Padding = matrixModule ? new Padding(12) : new Padding(24);
+            details.AutoScroll = false;
+        }
+
+        private bool IsMatrixModule()
+        {
+            return module == "type-effect" || module == "natures";
         }
 
         private void SortListByColumn(int column)
@@ -633,6 +654,19 @@ namespace PodexDesktop
                 generation = "";
             }
 
+            if (IsMatrixModule())
+            {
+                list.BeginUpdate();
+                list.ListViewItemSorter = null;
+                list.Items.Clear();
+                pokemonListItemsByLegacyId.Clear();
+                list.EndUpdate();
+                ShowMatrixModule();
+                UpdateModuleTitleWithCount();
+                statusLabel.Text = BuildStatus();
+                return;
+            }
+
             list.BeginUpdate();
             list.ListViewItemSorter = null;
             list.Items.Clear();
@@ -728,12 +762,35 @@ namespace PodexDesktop
         private void UpdateModuleTitleWithCount()
         {
             string title = CurrentModuleTitle();
+            if (IsMatrixModule())
+            {
+                titleLabel.Text = title;
+                Text = title;
+                return;
+            }
             int total = CurrentModuleTotal();
             string text = total > 0
                 ? string.Format("{0} ({1:N0} / {2:N0})", title, list.Items.Count, total)
                 : title;
             titleLabel.Text = text;
             Text = text;
+        }
+
+        private void ShowMatrixModule()
+        {
+            details.SuspendLayout();
+            details.Controls.Clear();
+            details.Padding = new Padding(12);
+            details.AutoScroll = false;
+            if (module == "type-effect")
+            {
+                details.Controls.Add(MakeTypeEffectMatrix());
+            }
+            else if (module == "natures")
+            {
+                details.Controls.Add(MakeNatureEffectMatrix());
+            }
+            details.ResumeLayout();
         }
 
         private string CurrentModuleTitle()
@@ -3402,53 +3459,225 @@ namespace PodexDesktop
 
         private void ShowTypeEffect(TypeRef attackType)
         {
-            var stack = StartDetail(LocalName(attackType.names), "攻击属性 / " + EnglishName(attackType.names));
-            var chart = root.typeChart == null ? null : root.typeChart.normal;
-            var row = chart == null ? null : chart.FirstOrDefault(r => r.attackTypeId == attackType.id);
-            if (row == null)
-            {
-                stack.Controls.Add(MakeBodyLabel("没有属性相性数据。"));
-                return;
-            }
-
-            var grid = new ListView
-            {
-                View = View.Details,
-                FullRowSelect = true,
-                Height = 460,
-                Width = 620,
-                BackColor = Color.FromArgb(244, 234, 216)
-            };
-            grid.Columns.Add("防御属性", 180);
-            grid.Columns.Add("倍率", 120);
-            grid.Columns.Add("English", 180);
-            foreach (var type in root.types.OrderBy(t => t.id))
-            {
-                double multiplier = row.GetMultiplier(type.id);
-                var item = new ListViewItem(LocalName(type.names));
-                item.SubItems.Add(multiplier.ToString("0.##"));
-                item.SubItems.Add(EnglishName(type.names));
-                grid.Items.Add(item);
-            }
-            stack.Controls.Add(grid);
+            details.Controls.Add(MakeTypeEffectMatrix());
         }
 
         private void ShowNature(NatureEntry n)
         {
-            var stack = StartDetail(LocalName(n.names), "#" + n.id + " / " + EnglishName(n.names));
-            if (n.modifiers == null)
+            details.Controls.Add(MakeNatureEffectMatrix());
+        }
+
+        private Control MakeTypeEffectMatrix()
+        {
+            var host = new Panel
             {
-                stack.Controls.Add(MakeBodyLabel("没有性格修正数据。"));
-                return;
+                Dock = DockStyle.Fill,
+                AutoScroll = true,
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+
+            bool inverse = false;
+            var holder = new Panel { AutoSize = true, Location = new Point(0, 0), BackColor = host.BackColor };
+            host.Controls.Add(holder);
+
+            Action rebuild = null;
+            rebuild = delegate
+            {
+                holder.Controls.Clear();
+                holder.Controls.Add(BuildTypeEffectMatrix(inverse, delegate
+                {
+                    inverse = !inverse;
+                    rebuild();
+                }));
+            };
+            rebuild();
+            return host;
+        }
+
+        private Control BuildTypeEffectMatrix(bool inverse, Action toggleInverse)
+        {
+            var types = root.types.OrderBy(t => t.id).ToList();
+            var chart = root.typeChart == null ? null : (inverse ? root.typeChart.inverse : root.typeChart.normal);
+            if (chart == null || chart.Count == 0) return MakeBodyLabel("没有属性相性数据。");
+
+            var table = new TableLayoutPanel
+            {
+                AutoSize = true,
+                ColumnCount = types.Count + 2,
+                RowCount = types.Count + 2,
+                CellBorderStyle = TableLayoutPanelCellBorderStyle.Single,
+                BackColor = Color.White,
+                Margin = new Padding(0)
+            };
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 54));
+            foreach (var type in types) table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 38));
+            table.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+            table.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+            foreach (var type in types) table.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+
+            var toggle = new Button
+            {
+                Text = inverse ? "还原" : "反转",
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0),
+                BackColor = Color.FromArgb(238, 238, 238),
+                FlatStyle = FlatStyle.Standard
+            };
+            toggle.Click += delegate { toggleInverse(); };
+            table.Controls.Add(toggle, 1, 0);
+
+            var defenseLabel = MakeMatrixHeaderCell("防御方", Color.FromArgb(96, 134, 220), Color.White);
+            table.Controls.Add(defenseLabel, 2, 0);
+            table.SetColumnSpan(defenseLabel, types.Count);
+
+            table.Controls.Add(MakeMatrixHeaderCell("攻击方", Color.FromArgb(210, 84, 82), Color.White), 0, 2);
+            table.SetRowSpan(table.GetControlFromPosition(0, 2), types.Count);
+
+            for (int i = 0; i < types.Count; i++)
+            {
+                TypeRef defenseType = types[i];
+                table.Controls.Add(MakeTypeBadgeLabel(defenseType, 36, 20, new Padding(0)), i + 2, 1);
             }
-            stack.Controls.Add(MakeFacts(new[]
+
+            for (int rowIndex = 0; rowIndex < types.Count; rowIndex++)
             {
-                Tuple.Create("攻击", ModifierText(n.modifiers.attack)),
-                Tuple.Create("防御", ModifierText(n.modifiers.defense)),
-                Tuple.Create("速度", ModifierText(n.modifiers.speed)),
-                Tuple.Create("特攻", ModifierText(n.modifiers.specialAttack)),
-                Tuple.Create("特防", ModifierText(n.modifiers.specialDefense))
-            }));
+                TypeRef attackType = types[rowIndex];
+                table.Controls.Add(MakeTypeBadgeLabel(attackType, 50, 20, new Padding(0)), 1, rowIndex + 2);
+                TypeChartRow chartRow = chart.FirstOrDefault(r => r.attackTypeId == attackType.id);
+                for (int colIndex = 0; colIndex < types.Count; colIndex++)
+                {
+                    TypeRef defenseType = types[colIndex];
+                    double multiplier = chartRow == null ? 1 : chartRow.GetMultiplier(defenseType.id);
+                    table.Controls.Add(MakeTypeMultiplierCell(multiplier), colIndex + 2, rowIndex + 2);
+                }
+            }
+
+            return table;
+        }
+
+        private static Control MakeTypeMultiplierCell(double multiplier)
+        {
+            Color backColor;
+            Color foreColor = Color.Black;
+            if (multiplier == 0)
+            {
+                backColor = Color.Black;
+                foreColor = Color.White;
+            }
+            else if (multiplier > 1)
+            {
+                backColor = Color.FromArgb(110, 255, 125);
+            }
+            else if (multiplier < 1)
+            {
+                backColor = Color.FromArgb(255, 118, 128);
+            }
+            else
+            {
+                backColor = Color.White;
+            }
+
+            return MakeMatrixHeaderCell(multiplier.ToString("0.##"), backColor, foreColor);
+        }
+
+        private Control MakeNatureEffectMatrix()
+        {
+            var host = new Panel
+            {
+                Dock = DockStyle.Fill,
+                AutoScroll = true,
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            host.Controls.Add(BuildNatureEffectMatrix());
+            return host;
+        }
+
+        private Control BuildNatureEffectMatrix()
+        {
+            var headers = new[] { "攻击", "防御", "速度", "特攻", "特防" };
+            var natures = root.natures.OrderBy(n => n.id).ToList();
+            var table = new TableLayoutPanel
+            {
+                AutoSize = true,
+                ColumnCount = headers.Length + 1,
+                RowCount = natures.Count + 1,
+                CellBorderStyle = TableLayoutPanelCellBorderStyle.Single,
+                BackColor = Color.White,
+                Margin = new Padding(0)
+            };
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
+            for (int i = 0; i < headers.Length; i++) table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 54));
+            table.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+            for (int i = 0; i < natures.Count; i++) table.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+
+            table.Controls.Add(MakeMatrixHeaderCell("", Color.White, Color.Black), 0, 0);
+            for (int i = 0; i < headers.Length; i++)
+            {
+                table.Controls.Add(MakeNatureHeaderBadge(headers[i]), i + 1, 0);
+            }
+
+            for (int row = 0; row < natures.Count; row++)
+            {
+                NatureEntry nature = natures[row];
+                table.Controls.Add(MakeNatureNameCell(LocalName(nature.names)), 0, row + 1);
+                for (int col = 0; col < headers.Length; col++)
+                {
+                    table.Controls.Add(MakeNatureModifierCell(NatureModifierAt(nature.modifiers, col)), col + 1, row + 1);
+                }
+            }
+
+            return table;
+        }
+
+        private static Control MakeNatureHeaderBadge(string text)
+        {
+            return MakeMatrixHeaderCell(text, Color.FromArgb(183, 158, 133), Color.White);
+        }
+
+        private static Control MakeNatureNameCell(string text)
+        {
+            return MakeMatrixHeaderCell(text, Color.White, Color.Black, ContentAlignment.MiddleLeft);
+        }
+
+        private static Control MakeNatureModifierCell(double value)
+        {
+            if (value > 0) return MakeMatrixHeaderCell("10%", Color.FromArgb(110, 255, 125), Color.Black);
+            if (value < 0) return MakeMatrixHeaderCell("-10%", Color.FromArgb(255, 118, 128), Color.Black);
+            return MakeMatrixHeaderCell("—", Color.White, Color.Black);
+        }
+
+        private static double NatureModifierAt(NatureModifiers modifiers, int index)
+        {
+            if (modifiers == null) return 0;
+            switch (index)
+            {
+                case 0: return modifiers.attack;
+                case 1: return modifiers.defense;
+                case 2: return modifiers.speed;
+                case 3: return modifiers.specialAttack;
+                case 4: return modifiers.specialDefense;
+                default: return 0;
+            }
+        }
+
+        private static CenteredBadgeLabel MakeMatrixHeaderCell(string text, Color backColor, Color foreColor)
+        {
+            return MakeMatrixHeaderCell(text, backColor, foreColor, ContentAlignment.MiddleCenter);
+        }
+
+        private static CenteredBadgeLabel MakeMatrixHeaderCell(string text, Color backColor, Color foreColor, ContentAlignment alignment)
+        {
+            return new CenteredBadgeLabel
+            {
+                Text = text,
+                Dock = DockStyle.Fill,
+                BackColor = backColor,
+                ForeColor = foreColor,
+                Font = new Font("Microsoft YaHei UI", 8f, FontStyle.Regular),
+                TextAlign = alignment,
+                Margin = new Padding(0)
+            };
         }
 
         private void ShowPlaceholder(string key)
