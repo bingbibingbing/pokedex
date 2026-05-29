@@ -86,7 +86,7 @@ namespace PodexTools
                 if (!string.IsNullOrWhiteSpace(options.PreviewDataPath) && report.MissingSourceFiles.Count == 0)
                 {
                     CatalogPreviewGenerator.Generate(options, report);
-                    if (!string.IsNullOrWhiteSpace(options.MissingChinesePath) && report.MissingChineseRows.Count > 0)
+                    if (!string.IsNullOrWhiteSpace(options.MissingChinesePath))
                     {
                         string missingChineseDirectory = Path.GetDirectoryName(Path.GetFullPath(options.MissingChinesePath));
                         if (!string.IsNullOrWhiteSpace(missingChineseDirectory))
@@ -1033,6 +1033,8 @@ namespace PodexTools
 
                 int addedItems = 0;
                 int skippedItems = 0;
+                int skippedInternalItems = 0;
+                int skippedPlaceholderItems = 0;
                 int skippedItemsMissingChinese = 0;
                 foreach (Dictionary<string, string> row in sourceItems.Rows.OrderBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "id"); }))
                 {
@@ -1041,6 +1043,16 @@ namespace PodexTools
                     if (!itemGenerations.ContainsKey(id))
                     {
                         skippedItems++;
+                        continue;
+                    }
+                    if (IsUnresolvedDynamaxCrystal(row, id, itemTextMap))
+                    {
+                        skippedPlaceholderItems++;
+                        continue;
+                    }
+                    if (IsInternalLetsGoPocket(row))
+                    {
+                        skippedInternalItems++;
                         continue;
                     }
                     if (!options.AllowEnglishFallback && !HasCompleteChinese(itemNameMap, id, itemTextMap, id))
@@ -1074,6 +1086,8 @@ namespace PodexTools
                 report.PreviewSummary["Skipped abilities missing Chinese"] = skippedAbilitiesMissingChinese.ToString();
                 report.PreviewSummary["Added items"] = addedItems.ToString();
                 report.PreviewSummary["Skipped items without generation availability"] = skippedItems.ToString();
+                report.PreviewSummary["Skipped internal item pocket entries"] = skippedInternalItems.ToString();
+                report.PreviewSummary["Skipped placeholder Dynamax crystals"] = skippedPlaceholderItems.ToString();
                 report.PreviewSummary["Skipped items missing Chinese"] = skippedItemsMissingChinese.ToString();
                 report.PreviewSummary["Missing Chinese report"] = string.IsNullOrWhiteSpace(options.MissingChinesePath) ? "--" : Path.GetFullPath(options.MissingChinesePath);
                 report.PreviewSummary["Chinese overrides loaded"] = overrides.Count.ToString();
@@ -1206,6 +1220,26 @@ namespace PodexTools
                 int effectId)
             {
                 return HasChinese(descriptionOverrides, moveId) || HasChinese(effectDescriptions, effectId);
+            }
+
+            private static bool IsUnresolvedDynamaxCrystal(
+                Dictionary<string, string> row,
+                int id,
+                Dictionary<int, Dictionary<string, string>> itemTextMap)
+            {
+                string identifier = CsvValue(row, "identifier");
+                return identifier.StartsWith("dynamax-crystal-", StringComparison.OrdinalIgnoreCase) &&
+                    !HasChinese(itemTextMap, id);
+            }
+
+            private static bool IsInternalLetsGoPocket(Dictionary<string, string> row)
+            {
+                string identifier = CsvValue(row, "identifier");
+                return identifier == "medicine-pocket" ||
+                    identifier == "candy-jar" ||
+                    identifier == "power-up-pocket" ||
+                    identifier == "catching-pocket" ||
+                    identifier == "battle-pocket";
             }
 
             private static bool HasChinese(Dictionary<int, Dictionary<string, string>> valuesById, int id)
