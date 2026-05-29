@@ -61,8 +61,9 @@ Use sources by responsibility, not one source for everything.
 - PokeAPI: good candidate for structured Pokemon/species/forms/moves/abilities/items/version-groups/evolution data, multilingual names, flavor text, and CSV-backed import data. Docs: https://pokeapi.co/docs/v2
 - PokeAPI GitHub CSV data: better than live API for reproducible imports because the local generator can pin a commit. Repo: https://github.com/PokeAPI/pokeapi
 - Pokemon Showdown data: useful for battle-accurate mechanics and generation-specific move/ability/item values. Dex API supports latest data and generation-specific lookup. Docs: https://www.smogon.com/dex/ and https://www.mintlify.com/smogon/pokemon-showdown/api/dex
+- 52poke / 神奇宝贝百科: useful for zh-CN names and descriptions, especially newer move/ability/item pages that PokeAPI does not fully localize. Its content is CC BY-NC-SA, so importer output must preserve source attribution and license notes.
 
-For Chinese text, we need a dedicated mapping pass. Some public datasets have localized names, but detailed Chinese effect text may be incomplete or inconsistent. The importer should allow manual overrides for Chinese descriptions.
+Chinese text is a hard requirement. Some public datasets have localized names, but detailed Chinese effect text may be incomplete or inconsistent. The importer must not ship English fallback in test builds. Missing zh-CN rows go to `artifacts/missing-chinese.csv` until a Chinese source or manual override fills them.
 
 ## Schema Gaps To Fix First
 
@@ -191,6 +192,7 @@ Implementation status:
 - The preflight report does not write `data/pokemon.json`; it only compares current data against source coverage and expansion candidates.
 - The importer also writes `artifacts/import-id-map-preview.csv`, a reviewable source-to-local ID mapping preview.
 - The importer can generate `artifacts/pokemon-catalog-preview.json` with added moves, abilities, and items only. Pokemon/forms/evolutions/learnsets remain out of preview until ID mapping is reviewed.
+- Preview generation is strict Chinese by default: new rows without zh-CN names or descriptions are skipped and listed in `artifacts/missing-chinese.csv`.
 
 ## Validation Checklist
 

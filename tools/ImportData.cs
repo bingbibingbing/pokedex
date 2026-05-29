@@ -86,6 +86,15 @@ namespace PodexTools
                 if (!string.IsNullOrWhiteSpace(options.PreviewDataPath) && report.MissingSourceFiles.Count == 0)
                 {
                     CatalogPreviewGenerator.Generate(options, report);
+                    if (!string.IsNullOrWhiteSpace(options.MissingChinesePath) && report.MissingChineseRows.Count > 0)
+                    {
+                        string missingChineseDirectory = Path.GetDirectoryName(Path.GetFullPath(options.MissingChinesePath));
+                        if (!string.IsNullOrWhiteSpace(missingChineseDirectory))
+                        {
+                            Directory.CreateDirectory(missingChineseDirectory);
+                        }
+                        File.WriteAllText(options.MissingChinesePath, MissingChineseRow.ToCsv(report.MissingChineseRows), Encoding.UTF8);
+                    }
                     text = report.ToText();
                     Console.WriteLine();
                     Console.WriteLine("Catalog preview generated: " + Path.GetFullPath(options.PreviewDataPath));
@@ -577,6 +586,7 @@ namespace PodexTools
                 MappingSummary = new Dictionary<string, string>();
                 PreviewSummary = new Dictionary<string, string>();
                 MappingRows = new List<MappingRow>();
+                MissingChineseRows = new List<MissingChineseRow>();
                 SourceTables = new List<SourceTableInfo>();
                 MissingSourceFiles = new List<string>();
                 Warnings = new List<string>();
@@ -592,6 +602,7 @@ namespace PodexTools
             public Dictionary<string, string> MappingSummary { get; private set; }
             public Dictionary<string, string> PreviewSummary { get; private set; }
             public List<MappingRow> MappingRows { get; private set; }
+            public List<MissingChineseRow> MissingChineseRows { get; private set; }
             public List<SourceTableInfo> SourceTables { get; private set; }
             public List<string> MissingSourceFiles { get; private set; }
             public List<string> Warnings { get; private set; }
@@ -728,6 +739,52 @@ namespace PodexTools
                     builder.Append(CsvEscape(row.Reason));
                     builder.Append(",");
                     builder.Append(CsvEscape(row.Name));
+                    builder.AppendLine();
+                }
+                return builder.ToString();
+            }
+
+            private static string CsvEscape(string value)
+            {
+                if (value == null) value = "";
+                bool quote = value.IndexOfAny(new[] { ',', '"', '\r', '\n' }) >= 0;
+                value = value.Replace("\"", "\"\"");
+                return quote ? "\"" + value + "\"" : value;
+            }
+        }
+
+        private sealed class MissingChineseRow
+        {
+            public MissingChineseRow(string entity, int sourceId, string identifier, bool missingName, bool missingDescription)
+            {
+                Entity = entity;
+                SourceId = sourceId;
+                Identifier = identifier;
+                MissingName = missingName;
+                MissingDescription = missingDescription;
+            }
+
+            public string Entity { get; private set; }
+            public int SourceId { get; private set; }
+            public string Identifier { get; private set; }
+            public bool MissingName { get; private set; }
+            public bool MissingDescription { get; private set; }
+
+            public static string ToCsv(List<MissingChineseRow> rows)
+            {
+                var builder = new StringBuilder();
+                builder.AppendLine("entity,source_id,identifier,missing_name,missing_description");
+                foreach (MissingChineseRow row in rows)
+                {
+                    builder.Append(CsvEscape(row.Entity));
+                    builder.Append(",");
+                    builder.Append(row.SourceId);
+                    builder.Append(",");
+                    builder.Append(CsvEscape(row.Identifier));
+                    builder.Append(",");
+                    builder.Append(row.MissingName ? "1" : "0");
+                    builder.Append(",");
+                    builder.Append(row.MissingDescription ? "1" : "0");
                     builder.AppendLine();
                 }
                 return builder.ToString();
@@ -897,6 +954,7 @@ namespace PodexTools
 
                 int addedMoves = 0;
                 int skippedMoves = 0;
+                int skippedMovesMissingChinese = 0;
                 foreach (Dictionary<string, string> row in sourceMoves.Rows.OrderBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "id"); }))
                 {
                     int id = CsvInt(row, "id");
@@ -907,21 +965,36 @@ namespace PodexTools
                         skippedMoves++;
                         continue;
                     }
+                    int effectId = CsvInt(row, "effect_id");
+                    if (!options.AllowEnglishFallback && !HasCompleteChinese(moveNameMap, id, moveEffectMap, effectId))
+                    {
+                        report.MissingChineseRows.Add(new MissingChineseRow("move", id, CsvValue(row, "identifier"), !HasChinese(moveNameMap, id), !HasChinese(moveEffectMap, effectId)));
+                        skippedMovesMissingChinese++;
+                        continue;
+                    }
                     moves.Add(BuildMove(row, moveNameMap, moveEffectMap, typeRefs));
                     addedMoves++;
                 }
 
                 int addedAbilities = 0;
+                int skippedAbilitiesMissingChinese = 0;
                 foreach (Dictionary<string, string> row in sourceAbilities.Rows.OrderBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "id"); }))
                 {
                     int id = CsvInt(row, "id");
                     if (id <= maxAbilityId) continue;
+                    if (!options.AllowEnglishFallback && !HasCompleteChinese(abilityNameMap, id, abilityTextMap, id))
+                    {
+                        report.MissingChineseRows.Add(new MissingChineseRow("ability", id, CsvValue(row, "identifier"), !HasChinese(abilityNameMap, id), !HasChinese(abilityTextMap, id)));
+                        skippedAbilitiesMissingChinese++;
+                        continue;
+                    }
                     abilities.Add(BuildAbility(row, abilityNameMap, abilityTextMap));
                     addedAbilities++;
                 }
 
                 int addedItems = 0;
                 int skippedItems = 0;
+                int skippedItemsMissingChinese = 0;
                 foreach (Dictionary<string, string> row in sourceItems.Rows.OrderBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "id"); }))
                 {
                     int id = CsvInt(row, "id");
@@ -929,6 +1002,12 @@ namespace PodexTools
                     if (!itemGenerations.ContainsKey(id))
                     {
                         skippedItems++;
+                        continue;
+                    }
+                    if (!options.AllowEnglishFallback && !HasCompleteChinese(itemNameMap, id, itemTextMap, id))
+                    {
+                        report.MissingChineseRows.Add(new MissingChineseRow("item", id, CsvValue(row, "identifier"), !HasChinese(itemNameMap, id), !HasChinese(itemTextMap, id)));
+                        skippedItemsMissingChinese++;
                         continue;
                     }
                     items.Add(BuildItem(row, itemNameMap, itemTextMap, itemGenerations));
@@ -950,9 +1029,13 @@ namespace PodexTools
                 report.PreviewSummary["Preview data"] = Path.GetFullPath(options.PreviewDataPath);
                 report.PreviewSummary["Added moves"] = addedMoves.ToString();
                 report.PreviewSummary["Skipped non-mainline/incomplete moves"] = skippedMoves.ToString();
+                report.PreviewSummary["Skipped moves missing Chinese"] = skippedMovesMissingChinese.ToString();
                 report.PreviewSummary["Added abilities"] = addedAbilities.ToString();
+                report.PreviewSummary["Skipped abilities missing Chinese"] = skippedAbilitiesMissingChinese.ToString();
                 report.PreviewSummary["Added items"] = addedItems.ToString();
                 report.PreviewSummary["Skipped items without generation availability"] = skippedItems.ToString();
+                report.PreviewSummary["Skipped items missing Chinese"] = skippedItemsMissingChinese.ToString();
+                report.PreviewSummary["Missing Chinese report"] = string.IsNullOrWhiteSpace(options.MissingChinesePath) ? "--" : Path.GetFullPath(options.MissingChinesePath);
                 report.PreviewSummary["Preview moves total"] = moves.Count.ToString();
                 report.PreviewSummary["Preview abilities total"] = abilities.Count.ToString();
                 report.PreviewSummary["Preview items total"] = items.Count.ToString();
@@ -1053,6 +1136,24 @@ namespace PodexTools
                     values[languageKey] = CsvValue(row, textColumn);
                 }
                 return result;
+            }
+
+            private static bool HasCompleteChinese(
+                Dictionary<int, Dictionary<string, string>> names,
+                int nameId,
+                Dictionary<int, Dictionary<string, string>> descriptions,
+                int descriptionId)
+            {
+                return HasChinese(names, nameId) && HasChinese(descriptions, descriptionId);
+            }
+
+            private static bool HasChinese(Dictionary<int, Dictionary<string, string>> valuesById, int id)
+            {
+                Dictionary<string, string> values;
+                string value;
+                return valuesById.TryGetValue(id, out values) &&
+                    values.TryGetValue("zhCN", out value) &&
+                    !string.IsNullOrWhiteSpace(value);
             }
 
             private static Dictionary<int, List<int>> BuildItemGenerationMap(CsvTable table)
@@ -1215,6 +1316,8 @@ namespace PodexTools
             public string ReportPath { get; private set; }
             public string MapPath { get; private set; }
             public string PreviewDataPath { get; private set; }
+            public string MissingChinesePath { get; private set; }
+            public bool AllowEnglishFallback { get; private set; }
             public bool RequireSource { get; private set; }
             public bool ShowHelp { get; private set; }
 
@@ -1248,6 +1351,14 @@ namespace PodexTools
                     {
                         options.PreviewDataPath = args[++i];
                     }
+                    else if (arg == "--missing-chinese" && i + 1 < args.Length)
+                    {
+                        options.MissingChinesePath = args[++i];
+                    }
+                    else if (arg == "--allow-english-fallback")
+                    {
+                        options.AllowEnglishFallback = true;
+                    }
                     else if (arg == "--require-source")
                     {
                         options.RequireSource = true;
@@ -1262,7 +1373,7 @@ namespace PodexTools
 
             public static string HelpText()
             {
-                return "Usage: PodexDataImporter.exe --data <pokemon.json> --source <pokeapi-csv-dir> [--report <path>] [--map <path>] [--preview-data <path>] [--require-source]";
+                return "Usage: PodexDataImporter.exe --data <pokemon.json> --source <pokeapi-csv-dir> [--report <path>] [--map <path>] [--preview-data <path>] [--missing-chinese <path>] [--allow-english-fallback] [--require-source]";
             }
         }
     }

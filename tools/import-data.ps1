@@ -4,6 +4,8 @@ param(
   [string]$ReportPath,
   [string]$MapPath,
   [string]$PreviewDataPath,
+  [string]$MissingChinesePath,
+  [switch]$AllowEnglishFallback,
   [switch]$RequireSource
 )
 
@@ -33,6 +35,10 @@ if (-not $MapPath) {
 
 if (-not $PreviewDataPath) {
   $PreviewDataPath = Join-Path $Root "artifacts\pokemon-catalog-preview.json"
+}
+
+if (-not $MissingChinesePath) {
+  $MissingChinesePath = Join-Path $Root "artifacts\missing-chinese.csv"
 }
 
 if (-not (Test-Path $Csc)) {
@@ -66,8 +72,13 @@ $argsList = @(
   "--source", $SourcePath,
   "--report", $ReportPath,
   "--map", $MapPath,
-  "--preview-data", $PreviewDataPath
+  "--preview-data", $PreviewDataPath,
+  "--missing-chinese", $MissingChinesePath
 )
+
+if ($AllowEnglishFallback) {
+  $argsList += "--allow-english-fallback"
+}
 
 if ($RequireSource) {
   $argsList += "--require-source"

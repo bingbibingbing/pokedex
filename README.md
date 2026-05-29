@@ -88,7 +88,9 @@ The report is written to:
 artifacts\import-data-report.txt
 artifacts\import-id-map-preview.csv
 artifacts\pokemon-catalog-preview.json
+artifacts\missing-chinese.csv
 ```
 
 Downloaded CSV files are cached under `tools\import-data\source-cache` and are ignored by Git.
+By default, the preview JSON refuses English fallback and skips new rows that lack zh-CN names or descriptions.
 The preview JSON adds new moves, abilities, and items only; it does not import Pokemon forms, evolutions, or learnsets yet.
