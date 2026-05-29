@@ -3509,12 +3509,21 @@ namespace PodexDesktop
                 BackColor = Color.White,
                 Margin = new Padding(0)
             };
-            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
-            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 54));
-            foreach (var type in types) table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 38));
-            table.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
-            table.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-            foreach (var type in types) table.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+            int attackLabelWidth = 34;
+            int attackTypeWidth = 78;
+            int availableWidth = Math.Max(980, details.ClientSize.Width - details.Padding.Horizontal - 48);
+            int availableHeight = Math.Max(640, details.ClientSize.Height - details.Padding.Vertical - 32);
+            int typeCellWidth = Math.Max(52, Math.Min(66, (availableWidth - attackLabelWidth - attackTypeWidth) / Math.Max(1, types.Count)));
+            int typeCellHeight = Math.Max(30, Math.Min(38, (availableHeight - 72) / Math.Max(1, types.Count)));
+            int titleRowHeight = Math.Max(36, typeCellHeight + 4);
+            int typeHeaderHeight = Math.Max(32, typeCellHeight);
+
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, attackLabelWidth));
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, attackTypeWidth));
+            foreach (var type in types) table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, typeCellWidth));
+            table.RowStyles.Add(new RowStyle(SizeType.Absolute, titleRowHeight));
+            table.RowStyles.Add(new RowStyle(SizeType.Absolute, typeHeaderHeight));
+            foreach (var type in types) table.RowStyles.Add(new RowStyle(SizeType.Absolute, typeCellHeight));
 
             var toggle = new Button
             {
@@ -3522,6 +3531,7 @@ namespace PodexDesktop
                 Dock = DockStyle.Fill,
                 Margin = new Padding(0),
                 BackColor = Color.FromArgb(238, 238, 238),
+                Font = new Font("Microsoft YaHei UI", 11f, FontStyle.Regular),
                 FlatStyle = FlatStyle.Standard
             };
             toggle.Click += delegate { toggleInverse(); };
@@ -3537,13 +3547,13 @@ namespace PodexDesktop
             for (int i = 0; i < types.Count; i++)
             {
                 TypeRef defenseType = types[i];
-                table.Controls.Add(MakeTypeBadgeLabel(defenseType, 36, 20, new Padding(0)), i + 2, 1);
+                table.Controls.Add(MakeMatrixTypeBadgeLabel(defenseType, typeCellWidth - 2, typeHeaderHeight - 4), i + 2, 1);
             }
 
             for (int rowIndex = 0; rowIndex < types.Count; rowIndex++)
             {
                 TypeRef attackType = types[rowIndex];
-                table.Controls.Add(MakeTypeBadgeLabel(attackType, 50, 20, new Padding(0)), 1, rowIndex + 2);
+                table.Controls.Add(MakeMatrixTypeBadgeLabel(attackType, attackTypeWidth - 4, typeCellHeight - 4), 1, rowIndex + 2);
                 TypeChartRow chartRow = chart.FirstOrDefault(r => r.attackTypeId == attackType.id);
                 for (int colIndex = 0; colIndex < types.Count; colIndex++)
                 {
@@ -3600,30 +3610,29 @@ namespace PodexDesktop
             var table = new TableLayoutPanel
             {
                 AutoSize = true,
-                ColumnCount = headers.Length + 1,
-                RowCount = natures.Count + 1,
+                ColumnCount = natures.Count + 1,
+                RowCount = headers.Length + 1,
                 CellBorderStyle = TableLayoutPanelCellBorderStyle.Single,
                 BackColor = Color.White,
                 Margin = new Padding(0)
             };
-            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
-            for (int i = 0; i < headers.Length; i++) table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 54));
-            table.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-            for (int i = 0; i < natures.Count; i++) table.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 76));
+            for (int i = 0; i < natures.Count; i++) table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64));
+            table.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+            for (int i = 0; i < headers.Length; i++) table.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
 
             table.Controls.Add(MakeMatrixHeaderCell("", Color.White, Color.Black), 0, 0);
-            for (int i = 0; i < headers.Length; i++)
+            for (int col = 0; col < natures.Count; col++)
             {
-                table.Controls.Add(MakeNatureHeaderBadge(headers[i]), i + 1, 0);
+                table.Controls.Add(MakeNatureHeaderBadge(LocalName(natures[col].names)), col + 1, 0);
             }
 
-            for (int row = 0; row < natures.Count; row++)
+            for (int row = 0; row < headers.Length; row++)
             {
-                NatureEntry nature = natures[row];
-                table.Controls.Add(MakeNatureNameCell(LocalName(nature.names)), 0, row + 1);
-                for (int col = 0; col < headers.Length; col++)
+                table.Controls.Add(MakeNatureStatCell(headers[row]), 0, row + 1);
+                for (int col = 0; col < natures.Count; col++)
                 {
-                    table.Controls.Add(MakeNatureModifierCell(NatureModifierAt(nature.modifiers, col)), col + 1, row + 1);
+                    table.Controls.Add(MakeNatureModifierCell(NatureModifierAt(natures[col].modifiers, row)), col + 1, row + 1);
                 }
             }
 
@@ -3635,9 +3644,9 @@ namespace PodexDesktop
             return MakeMatrixHeaderCell(text, Color.FromArgb(183, 158, 133), Color.White);
         }
 
-        private static Control MakeNatureNameCell(string text)
+        private static Control MakeNatureStatCell(string text)
         {
-            return MakeMatrixHeaderCell(text, Color.White, Color.Black, ContentAlignment.MiddleLeft);
+            return MakeMatrixHeaderCell(text, Color.FromArgb(238, 230, 197), Color.Black);
         }
 
         private static Control MakeNatureModifierCell(double value)
@@ -3674,8 +3683,24 @@ namespace PodexDesktop
                 Dock = DockStyle.Fill,
                 BackColor = backColor,
                 ForeColor = foreColor,
-                Font = new Font("Microsoft YaHei UI", 8f, FontStyle.Regular),
+                Font = new Font("Microsoft YaHei UI", 11f, FontStyle.Regular),
                 TextAlign = alignment,
+                Margin = new Padding(0)
+            };
+        }
+
+        private static CenteredBadgeLabel MakeMatrixTypeBadgeLabel(TypeRef type, int width, int height)
+        {
+            return new CenteredBadgeLabel
+            {
+                Text = LocalName(type.names),
+                Dock = DockStyle.Fill,
+                Width = width,
+                Height = height,
+                BackColor = TypeColor(type.id),
+                ForeColor = Color.White,
+                Font = new Font("Microsoft YaHei UI", 11f, FontStyle.Bold),
+                TextAlign = ContentAlignment.MiddleCenter,
                 Margin = new Padding(0)
             };
         }
