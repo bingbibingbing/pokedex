@@ -814,8 +814,8 @@ namespace PodexDesktop
             };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 100));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 94));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 86));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 122));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 112));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             page.Controls.Add(layout);
@@ -1121,7 +1121,7 @@ namespace PodexDesktop
                 BorderStyle = BorderStyle.FixedSingle,
                 ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
                 ColumnHeadersHeight = 22,
-                RowTemplate = { Height = 20 },
+                RowTemplate = { Height = 22 },
                 Margin = new Padding(0, 0, 0, 6)
             };
             grid.Columns.Add(MakeImageColumn("fromIcon", "", 38));
