@@ -1042,13 +1042,15 @@ namespace PodexDesktop
             var searchPanel = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                ColumnCount = 2,
+                ColumnCount = 4,
                 RowCount = 1,
                 Margin = new Padding(0, 0, 0, 3),
                 BackColor = Color.FromArgb(255, 250, 237)
             };
             searchPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 44));
             searchPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            searchPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 50));
+            searchPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
             searchPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             searchPanel.Controls.Add(new Label
             {
@@ -1066,6 +1068,23 @@ namespace PodexDesktop
                 Text = moveFilterSearchText
             };
             searchPanel.Controls.Add(moveSearchBox, 1, 0);
+            searchPanel.Controls.Add(new Label
+            {
+                Text = "版本",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleRight,
+                ForeColor = Color.FromArgb(23, 32, 27),
+                Font = new Font("Segoe UI", 9f),
+                Margin = new Padding(8, 4, 4, 0)
+            }, 2, 0);
+            var moveGameFilter = new ComboBox
+            {
+                Dock = DockStyle.Fill,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Margin = new Padding(0, 2, 0, 2)
+            };
+            PopulateMoveFilterGameFilter(moveGameFilter);
+            searchPanel.Controls.Add(moveGameFilter, 3, 0);
 
             var catalogGrid = MakeMoveFilterGrid();
             var conditionGrid = MakeMoveFilterGrid();
@@ -1134,6 +1153,13 @@ namespace PodexDesktop
                 moveFilterSearchText = moveSearchBox.Text;
                 refreshCatalog();
             };
+            moveGameFilter.SelectedIndexChanged += delegate
+            {
+                var selected = moveGameFilter.SelectedItem as IdOption;
+                if (selected == null || selected.Id == moveFilterGameId) return;
+                moveFilterGameId = selected.Id;
+                ApplyFilters();
+            };
             catalogGrid.CellDoubleClick += delegate(object sender, DataGridViewCellEventArgs e)
             {
                 if (e.RowIndex >= 0) addSelectedMove();
@@ -1177,6 +1203,20 @@ namespace PodexDesktop
             refreshCatalog();
             refreshConditions();
             return page;
+        }
+
+        private void PopulateMoveFilterGameFilter(ComboBox combo)
+        {
+            combo.Items.Clear();
+            int currentGameId = CurrentMoveFilterGameId();
+            int selectedIndex = -1;
+            foreach (int gameId in root.learnsets.Select(r => r.gameId).Distinct().OrderByDescending(id => id))
+            {
+                int itemIndex = combo.Items.Add(new IdOption(gameId, GameName(gameId)));
+                if (gameId == currentGameId) selectedIndex = itemIndex;
+            }
+            if (selectedIndex < 0 && combo.Items.Count > 0) selectedIndex = 0;
+            if (selectedIndex >= 0) combo.SelectedIndex = selectedIndex;
         }
 
         private Button MakeMoveFilterButton(string text, int width)
