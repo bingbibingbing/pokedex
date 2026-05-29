@@ -198,6 +198,9 @@ function Test-WikiPageMatch {
   }
 
   $pageEnglishName = Get-InfoboxField $Content @("enname")
+  if ($Entity -eq "item" -and [string]::IsNullOrWhiteSpace($pageEnglishName)) {
+    $pageEnglishName = Get-ItemTemplateField $Content 4
+  }
   if (-not [string]::IsNullOrWhiteSpace($EnglishName) -and -not [string]::IsNullOrWhiteSpace($pageEnglishName)) {
     return (Normalize-MatchText $pageEnglishName).Equals((Normalize-MatchText $EnglishName), [System.StringComparison]::OrdinalIgnoreCase)
   }
@@ -213,6 +216,12 @@ function Test-WikiPageMatch {
   }
 
   $pageChineseName = Get-EntityName $Content
+  if ($Entity -eq "item") {
+    $templateChineseName = Get-ItemTemplateField $Content 1
+    if (-not [string]::IsNullOrWhiteSpace($templateChineseName)) {
+      $pageChineseName = $templateChineseName
+    }
+  }
   if (-not [string]::IsNullOrWhiteSpace($ChineseName) -and -not [string]::IsNullOrWhiteSpace($pageChineseName)) {
     return (Normalize-MatchText (Convert-TraditionalTerms $pageChineseName)) -eq (Normalize-MatchText (Convert-TraditionalTerms $ChineseName))
   }
@@ -453,6 +462,9 @@ function Test-TextQuality {
   if ($Text -match "日文︰|英文︰|是第[一二三四五六七八九十]+世代引入|目前类似|游戏漏洞|；\s*；|如、|、等|拥有、|^.*（日文") {
     return $false
   }
+  if ($Text -match "^[ー—－-]+$") {
+    return $false
+  }
   if ($Text -match "的的|可被的|陷入和状态|例如）|特性为或|特性（如|如等|因素：.*；\s*；|无视、|、、、|、、|===|受到接触类招式的攻击时，\s*$|若＞|若＜|该招式优先度\\+1|结实特性不能阻止|（）|的（向|最大ＨＰ的（|使用者的、|目标的、|或等|携带了或|特性为无法|的该副作用|对的该副作用|会 会|时时|自身回复造成伤害$|威力 = [^。]*×\s*。|鳞粉或防止|使用等招式|（向下取整）的反作用力|全部提高|进入状态|陷入状态|携带的宝可梦|对特性的宝可梦|拥有特性的宝可梦|存在特性的宝可梦") {
     return $false
   }
@@ -508,6 +520,24 @@ function Get-InfoboxField {
     }
   }
   return ""
+}
+
+function Get-ItemTemplateField {
+  param(
+    [string]$Content,
+    [int]$FieldNumber
+  )
+  $value = Use-ZhHans $Content
+  $match = [regex]::Match($value, "\{\{N\|(?<fields>.+?)\}\}")
+  if (-not $match.Success) {
+    return ""
+  }
+  $parts = $match.Groups["fields"].Value -split "\|"
+  $index = $FieldNumber - 1
+  if ($index -lt 0 -or $index -ge $parts.Count) {
+    return ""
+  }
+  return Convert-WikiTextToPlain $parts[$index]
 }
 
 function Get-SectionBody {
