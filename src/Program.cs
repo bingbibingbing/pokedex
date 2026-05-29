@@ -128,12 +128,6 @@ namespace PodexDesktop
             AddNavButton("招式", "moves");
             AddNavButton("属性效果", "type-effect");
             AddNavButton("性格效果", "natures");
-            AddNavSeparator();
-            AddNavButton("捕获率计算器", "catch-calc");
-            AddNavButton("个体值计算器", "iv-calc");
-            AddNavButton("打击面计算器", "coverage-calc");
-            AddNavButton("遗传路线计算器", "breed-calc");
-            AddNavButton("速度线计算器", "speed-calc");
 
             var content = new Panel { Dock = DockStyle.Fill, Padding = new Padding(12) };
             var filters = new TableLayoutPanel
