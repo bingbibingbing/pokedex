@@ -524,11 +524,60 @@ function Get-SectionBody {
 }
 
 function Get-ItemBagDescription {
-  param([string]$Content)
+  param(
+    [string]$Content,
+    [string]$Identifier = ""
+  )
   $value = Use-ZhHans $Content
+  if ($Identifier -match "--merge$") {
+    $mergeDescription = Get-ItemBagDescriptionFromSection $value "合体前"
+    if (-not [string]::IsNullOrWhiteSpace($mergeDescription)) {
+      return $mergeDescription
+    }
+  }
+  if ($Identifier -match "--split$") {
+    $splitDescription = Get-ItemBagDescriptionFromSection $value "合体后"
+    if (-not [string]::IsNullOrWhiteSpace($splitDescription)) {
+      return $splitDescription
+    }
+  }
+
   $bestGeneration = -1
   $bestDescription = ""
   foreach ($line in ($value -split "`n")) {
+    if ($line -notmatch "\{\{包包信息框\|") { continue }
+    if ($line -match "\{\{包包信息框/h") { continue }
+    $inner = $line.Trim()
+    $inner = $inner -replace "^\{\{", ""
+    $inner = $inner -replace "\}\}$", ""
+    $parts = $inner -split "\|"
+    if ($parts.Count -lt 6 -or $parts[0] -ne "包包信息框") { continue }
+    $generation = 0
+    [void][int]::TryParse($parts[1], [ref]$generation)
+    $description = Convert-WikiTextToPlain $parts[5]
+    if (-not [string]::IsNullOrWhiteSpace($description) -and $generation -ge $bestGeneration) {
+      $bestGeneration = $generation
+      $bestDescription = $description
+    }
+  }
+  return $bestDescription
+}
+
+function Get-ItemBagDescriptionFromSection {
+  param(
+    [string]$Content,
+    [string]$SectionName
+  )
+  $pattern = "(?ms)^={2,}\s*" + [regex]::Escape($SectionName) + "\s*={2,}\s*(?<body>.*?)(?=^={2,}[^=`r`n].*?={2,}\s*$|\z)"
+  $match = [regex]::Match($Content, $pattern)
+  $section = if ($match.Success) { $match.Groups["body"].Value } else { "" }
+  if ([string]::IsNullOrWhiteSpace($section)) {
+    return ""
+  }
+
+  $bestGeneration = -1
+  $bestDescription = ""
+  foreach ($line in ($section -split "`n")) {
     if ($line -notmatch "\{\{包包信息框\|") { continue }
     if ($line -match "\{\{包包信息框/h") { continue }
     $inner = $line.Trim()
@@ -556,7 +605,8 @@ function Get-EntityDescription {
   param(
     [string]$Entity,
     [string]$Content,
-    [string]$Snippet
+    [string]$Snippet,
+    [string]$Identifier = ""
   )
   if ($Entity -eq "move") {
     $description = Convert-WikiTextToPlain (Get-SectionBody $Content "招式附加效果")
@@ -581,7 +631,7 @@ function Get-EntityDescription {
   }
 
   if ($Entity -eq "item") {
-    $description = Get-ItemBagDescription $Content
+    $description = Get-ItemBagDescription $Content $Identifier
     if ([string]::IsNullOrWhiteSpace($description)) {
       $description = Convert-WikiTextToPlain (Get-SectionBody $Content "使用效果")
     }
@@ -683,7 +733,7 @@ foreach ($row in $missingRows) {
 
   $description = ""
   if ($row.missing_description -eq "1") {
-    $description = Get-EntityDescription $row.entity $content $titleHit.Snippet
+    $description = Get-EntityDescription $row.entity $content $titleHit.Snippet $row.identifier
   }
 
   if (($row.missing_name -eq "1" -and [string]::IsNullOrWhiteSpace($name)) -or
