@@ -193,6 +193,8 @@ namespace PodexDesktop
             {
                 SortListByColumn(e.Column);
             };
+            list.DrawColumnHeader += DrawListColumnHeader;
+            list.DrawSubItem += DrawListSubItem;
 
             details.Dock = DockStyle.Fill;
             details.AutoScroll = true;
@@ -215,8 +217,8 @@ namespace PodexDesktop
             if (mainSplit.Panel1Collapsed || IsMatrixModule()) return;
 
             int total = Math.Max(0, mainSplit.Width - mainSplit.SplitterWidth);
-            int panel1Min = module == "moves" ? 440 : 520;
-            int panel2Min = module == "moves" ? 520 : 420;
+            int panel1Min = module == "moves" ? 486 : 520;
+            int panel2Min = module == "moves" ? 620 : 420;
             if (total < panel1Min + panel2Min)
             {
                 panel2Min = Math.Max(300, total - panel1Min);
@@ -227,7 +229,7 @@ namespace PodexDesktop
             mainSplit.Panel2MinSize = panel2Min;
 
             int target = module == "moves"
-                ? Math.Min(510, Math.Max(panel1Min, total - 600))
+                ? Math.Min(500, Math.Max(panel1Min, total - 700))
                 : Math.Min(640, Math.Max(panel1Min, mainSplit.Width - 560 - mainSplit.SplitterWidth));
             int maxTarget = mainSplit.Width - mainSplit.Panel2MinSize - mainSplit.SplitterWidth;
             if (target > maxTarget) target = maxTarget;
@@ -528,12 +530,68 @@ namespace PodexDesktop
             list.Sort();
         }
 
+        private void DrawListColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
+        {
+            e.DrawDefault = true;
+        }
+
+        private void DrawListSubItem(object sender, DrawListViewSubItemEventArgs e)
+        {
+            var move = e.Item.Tag as MoveEntry;
+            if (module != "moves" || move == null)
+            {
+                e.DrawDefault = true;
+                return;
+            }
+
+            bool selected = e.Item.Selected;
+            Color backColor = selected ? SystemColors.Highlight : MoveListCellBackColor(e.SubItem);
+            Color foreColor = selected ? SystemColors.HighlightText : MoveListCellForeColor(e.SubItem, e.ColumnIndex);
+            using (var brush = new SolidBrush(backColor))
+            {
+                e.Graphics.FillRectangle(brush, e.Bounds);
+            }
+
+            if (e.ColumnIndex == 7)
+            {
+                DrawCenteredCellImage(e.Graphics, e.Bounds, LoadCellImage(MoveRangeImagePath(move.rangeId)));
+            }
+            else
+            {
+                TextFormatFlags flags = TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis;
+                Rectangle textBounds = new Rectangle(e.Bounds.Left + 4, e.Bounds.Top, Math.Max(0, e.Bounds.Width - 8), e.Bounds.Height);
+                TextRenderer.DrawText(e.Graphics, e.SubItem.Text, list.Font, textBounds, foreColor, flags);
+            }
+        }
+
+        private static Color MoveListCellBackColor(ListViewItem.ListViewSubItem subItem)
+        {
+            return subItem.BackColor == Color.Empty ? Color.FromArgb(255, 250, 237) : subItem.BackColor;
+        }
+
+        private static Color MoveListCellForeColor(ListViewItem.ListViewSubItem subItem, int columnIndex)
+        {
+            if (columnIndex == 2 || columnIndex == 3) return Color.White;
+            return subItem.ForeColor == Color.Empty ? Color.Black : subItem.ForeColor;
+        }
+
+        private static void DrawCenteredCellImage(Graphics graphics, Rectangle bounds, Image image)
+        {
+            if (image == null) return;
+            int width = Math.Min(image.Width, Math.Max(4, bounds.Width - 6));
+            int height = Math.Min(image.Height, Math.Max(4, bounds.Height - 4));
+            int x = bounds.Left + (bounds.Width - width) / 2;
+            int y = bounds.Top + (bounds.Height - height) / 2;
+            graphics.DrawImage(image, x, y, width, height);
+        }
+
         private void ConfigureListColumns()
         {
             list.BeginUpdate();
             list.Columns.Clear();
             if (module.StartsWith("pokemon"))
             {
+                list.OwnerDraw = false;
                 EnsurePokemonSmallImages();
                 list.SmallImageList = pokemonSmallImages;
                 titleLabel.Text = module == "pokemon-classic" ? "宝可梦 (经典版)" : "宝可梦";
@@ -551,20 +609,22 @@ namespace PodexDesktop
             }
             else if (module == "moves")
             {
+                list.OwnerDraw = true;
                 list.SmallImageList = null;
                 titleLabel.Text = "招式";
-                list.Columns.Add("#", 44);
-                list.Columns.Add("名字", 132);
-                list.Columns.Add("属性", 54);
-                list.Columns.Add("分类", 58);
-                list.Columns.Add("威", 38);
-                list.Columns.Add("命", 38);
-                list.Columns.Add("PP", 38);
-                list.Columns.Add("范围", 50);
-                list.Columns.Add("优", 34);
+                list.Columns.Add("#", 36);
+                list.Columns.Add("名字", 124);
+                list.Columns.Add("属性", 50);
+                list.Columns.Add("分类", 54);
+                list.Columns.Add("威", 34);
+                list.Columns.Add("命", 34);
+                list.Columns.Add("PP", 32);
+                list.Columns.Add("范围", 44);
+                list.Columns.Add("优", 28);
             }
             else if (module == "abilities")
             {
+                list.OwnerDraw = false;
                 list.SmallImageList = null;
                 titleLabel.Text = "特性";
                 list.Columns.Add("#", 56);
@@ -573,6 +633,7 @@ namespace PodexDesktop
             }
             else if (module == "items")
             {
+                list.OwnerDraw = false;
                 EnsureItemSmallImages();
                 list.SmallImageList = itemSmallImages;
                 titleLabel.Text = "道具";
@@ -584,6 +645,7 @@ namespace PodexDesktop
             }
             else if (module == "type-effect")
             {
+                list.OwnerDraw = false;
                 list.SmallImageList = null;
                 titleLabel.Text = "属性效果";
                 list.Columns.Add("#", 64);
@@ -592,6 +654,7 @@ namespace PodexDesktop
             }
             else if (module == "natures")
             {
+                list.OwnerDraw = false;
                 list.SmallImageList = null;
                 titleLabel.Text = "性格效果";
                 list.Columns.Add("#", 64);
@@ -602,6 +665,7 @@ namespace PodexDesktop
             }
             else
             {
+                list.OwnerDraw = false;
                 list.SmallImageList = null;
                 titleLabel.Text = GetModuleTitle(module);
                 list.Columns.Add("功能", 220);
@@ -2495,7 +2559,7 @@ namespace PodexDesktop
                 BackColor = Color.FromArgb(255, 250, 237),
                 Margin = new Padding(0)
             };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 282));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 272));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
@@ -2909,7 +2973,7 @@ namespace PodexDesktop
         private static int MoveFilterSectionHeight(string title)
         {
             if (title == "属性") return 142;
-            if (title == "效果对象") return 72;
+            if (title == "效果对象") return 96;
             return 50;
         }
 
@@ -2952,20 +3016,38 @@ namespace PodexDesktop
             return panel;
         }
 
-        private FlowLayoutPanel MakeMoveRangeFilterButtons()
+        private Control MakeMoveRangeFilterButtons()
         {
-            var panel = MakeMoveButtonWrapPanel();
-            foreach (string rangeValue in root.moves.Select(m => MoveValue(m.rangeId)).Where(v => v != "--").Distinct().OrderBy(v => v))
+            var panel = new TableLayoutPanel
+            {
+                ColumnCount = 3,
+                RowCount = 3,
+                BackColor = Color.FromArgb(255, 250, 237),
+                Margin = new Padding(0),
+                Padding = new Padding(0)
+            };
+            for (int i = 0; i < 3; i++)
+            {
+                panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
+                panel.RowStyles.Add(new RowStyle(SizeType.Percent, 33.33f));
+            }
+
+            int index = 0;
+            foreach (string rangeValue in root.moves.Select(m => MoveValue(m.rangeId)).Where(v => v != "--").Distinct().OrderBy(MovePresetSortKey))
             {
                 var button = MakeMoveFilterImageButton(rangeValue, MoveRangeImagePath(rangeValue), 42, Color.FromArgb(240, 240, 240), Color.FromArgb(23, 32, 27), moveModuleRangeFilter == rangeValue);
                 button.Tag = rangeValue;
+                button.Dock = DockStyle.Fill;
+                button.Height = 22;
                 button.Click += delegate
                 {
                     moveModuleRangeFilter = moveModuleRangeFilter == rangeValue ? null : rangeValue;
                     UpdateMoveFilterButtonSelection(panel, moveModuleRangeFilter);
                     ApplyFilters();
                 };
-                panel.Controls.Add(button);
+                panel.Controls.Add(button, index % 3, index / 3);
+                index++;
+                if (index >= 9) break;
             }
             return panel;
         }
@@ -3008,7 +3090,7 @@ namespace PodexDesktop
             return button;
         }
 
-        private static void UpdateMoveFilterButtonSelection(FlowLayoutPanel panel, object selectedTag)
+        private static void UpdateMoveFilterButtonSelection(Control panel, object selectedTag)
         {
             foreach (Control control in panel.Controls)
             {
@@ -3061,18 +3143,19 @@ namespace PodexDesktop
                 RowTemplate = { Height = 22 },
                 ScrollBars = ScrollBars.Vertical
             };
-            grid.Columns.Add(MakeTextColumn("number", "#", 44));
-            grid.Columns.Add(MakeImageColumn("icon", "", 28));
-            grid.Columns.Add(MakeTextColumn("name", "宝可梦", 116));
-            grid.Columns.Add(MakeTextColumn("type1", "属性", 54));
-            grid.Columns.Add(MakeTextColumn("type2", "属性", 54));
-            grid.Columns.Add(MakeTextColumn("level", "Lv.", 78));
+            grid.Columns.Add(MakeTextColumn("number", "#", 34));
+            grid.Columns.Add(MakeImageColumn("icon", "", 22));
+            grid.Columns.Add(MakeTextColumn("name", "宝可梦", 82));
+            grid.Columns.Add(MakeTextColumn("type1", "属性", 40));
+            grid.Columns.Add(MakeTextColumn("type2", "属性", 40));
+            grid.Columns.Add(MakeTextColumn("level", "Lv.", 44));
             grid.Columns["name"].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
-            grid.Columns["name"].MinimumWidth = 96;
+            grid.Columns["name"].MinimumWidth = 68;
             foreach (DataGridViewColumn column in grid.Columns)
             {
                 column.SortMode = DataGridViewColumnSortMode.NotSortable;
             }
+            grid.Resize += delegate { ResizeMovePokemonGridColumns(grid); };
             grid.CellDoubleClick += delegate(object sender, DataGridViewCellEventArgs e)
             {
                 if (e.RowIndex >= 0 && e.RowIndex < grid.Rows.Count && grid.Rows[e.RowIndex].Tag is int)
@@ -3081,6 +3164,19 @@ namespace PodexDesktop
                 }
             };
             return grid;
+        }
+
+        private static void ResizeMovePokemonGridColumns(DataGridView grid)
+        {
+            if (grid.Columns.Count < 6) return;
+            int fixedWidth =
+                grid.Columns["number"].Width +
+                grid.Columns["icon"].Width +
+                grid.Columns["type1"].Width +
+                grid.Columns["type2"].Width +
+                grid.Columns["level"].Width +
+                26;
+            grid.Columns["name"].Width = Math.Max(68, grid.ClientSize.Width - fixedWidth);
         }
 
         private void FillMovePokemonGrid(DataGridView grid, MoveEntry move)
