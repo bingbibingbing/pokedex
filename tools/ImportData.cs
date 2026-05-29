@@ -83,6 +83,18 @@ namespace PodexTools
                     File.WriteAllText(options.MapPath, MappingRow.ToCsv(report.MappingRows), Encoding.UTF8);
                 }
 
+                if (!string.IsNullOrWhiteSpace(options.PreviewDataPath) && report.MissingSourceFiles.Count == 0)
+                {
+                    CatalogPreviewGenerator.Generate(options, report);
+                    text = report.ToText();
+                    Console.WriteLine();
+                    Console.WriteLine("Catalog preview generated: " + Path.GetFullPath(options.PreviewDataPath));
+                    if (!string.IsNullOrWhiteSpace(options.ReportPath))
+                    {
+                        File.WriteAllText(options.ReportPath, text, Encoding.UTF8);
+                    }
+                }
+
                 if (options.RequireSource && report.MissingSourceFiles.Count > 0) return 1;
                 return 0;
             }
@@ -563,6 +575,7 @@ namespace PodexTools
                 SourceCoverage = new Dictionary<string, string>();
                 Candidates = new Dictionary<string, string>();
                 MappingSummary = new Dictionary<string, string>();
+                PreviewSummary = new Dictionary<string, string>();
                 MappingRows = new List<MappingRow>();
                 SourceTables = new List<SourceTableInfo>();
                 MissingSourceFiles = new List<string>();
@@ -577,6 +590,7 @@ namespace PodexTools
             public Dictionary<string, string> SourceCoverage { get; private set; }
             public Dictionary<string, string> Candidates { get; private set; }
             public Dictionary<string, string> MappingSummary { get; private set; }
+            public Dictionary<string, string> PreviewSummary { get; private set; }
             public List<MappingRow> MappingRows { get; private set; }
             public List<SourceTableInfo> SourceTables { get; private set; }
             public List<string> MissingSourceFiles { get; private set; }
@@ -599,6 +613,7 @@ namespace PodexTools
                 AppendDictionary(builder, "Source Coverage", SourceCoverage);
                 AppendDictionary(builder, "Expansion Candidates", Candidates);
                 AppendDictionary(builder, "ID Mapping Summary", MappingSummary);
+                AppendDictionary(builder, "Catalog Preview", PreviewSummary);
                 AppendList(builder, "Warnings", Warnings);
                 AppendList(builder, "Notes", Notes);
                 AppendList(builder, "Next Plan", Plan);
@@ -827,12 +842,379 @@ namespace PodexTools
             }
         }
 
+        private static class CatalogPreviewGenerator
+        {
+            private static readonly Dictionary<int, string> LanguageKeys = new Dictionary<int, string>
+            {
+                { 9, "en" },
+                { 12, "zhCN" },
+                { 4, "zhTW" },
+                { 11, "ja" },
+                { 3, "ko" },
+                { 6, "de" },
+                { 5, "fr" },
+                { 8, "it" },
+                { 7, "es" }
+            };
+
+            public static void Generate(Options options, ImportReport report)
+            {
+                var serializer = new JavaScriptSerializer
+                {
+                    MaxJsonLength = int.MaxValue,
+                    RecursionLimit = 1000000
+                };
+                var raw = serializer.DeserializeObject(File.ReadAllText(options.DataPath, Encoding.UTF8)) as Dictionary<string, object>;
+                if (raw == null) throw new InvalidDataException("Root JSON must be an object.");
+
+                List<object> moves = RawList(raw, "moves");
+                List<object> abilities = RawList(raw, "abilities");
+                List<object> items = RawList(raw, "items");
+
+                int maxMoveId = MaxRawId(moves, "id");
+                int maxAbilityId = MaxRawId(abilities, "id");
+                int maxItemId = MaxRawId(items, "id");
+
+                CsvTable sourceMoves = CsvTable.Load(Path.Combine(options.SourcePath, "moves.csv"));
+                CsvTable moveNames = CsvTable.Load(Path.Combine(options.SourcePath, "move_names.csv"));
+                CsvTable moveEffects = CsvTable.Load(Path.Combine(options.SourcePath, "move_effect_prose.csv"));
+                CsvTable sourceAbilities = CsvTable.Load(Path.Combine(options.SourcePath, "abilities.csv"));
+                CsvTable abilityNames = CsvTable.Load(Path.Combine(options.SourcePath, "ability_names.csv"));
+                CsvTable abilityProse = CsvTable.Load(Path.Combine(options.SourcePath, "ability_prose.csv"));
+                CsvTable sourceItems = CsvTable.Load(Path.Combine(options.SourcePath, "items.csv"));
+                CsvTable itemNames = CsvTable.Load(Path.Combine(options.SourcePath, "item_names.csv"));
+                CsvTable itemProse = CsvTable.Load(Path.Combine(options.SourcePath, "item_prose.csv"));
+                CsvTable itemGameIndices = CsvTable.Load(Path.Combine(options.SourcePath, "item_game_indices.csv"));
+
+                Dictionary<int, Dictionary<string, string>> moveNameMap = BuildLocalizedTextMap(moveNames, "move_id", "name");
+                Dictionary<int, Dictionary<string, string>> moveEffectMap = BuildLocalizedTextMap(moveEffects, "move_effect_id", "short_effect");
+                Dictionary<int, Dictionary<string, string>> abilityNameMap = BuildLocalizedTextMap(abilityNames, "ability_id", "name");
+                Dictionary<int, Dictionary<string, string>> abilityTextMap = BuildLocalizedTextMap(abilityProse, "ability_id", "short_effect");
+                Dictionary<int, Dictionary<string, string>> itemNameMap = BuildLocalizedTextMap(itemNames, "item_id", "name");
+                Dictionary<int, Dictionary<string, string>> itemTextMap = BuildLocalizedTextMap(itemProse, "item_id", "short_effect");
+                Dictionary<int, List<int>> itemGenerations = BuildItemGenerationMap(itemGameIndices);
+                Dictionary<int, Dictionary<string, object>> typeRefs = BuildTypeRefs(raw);
+
+                int addedMoves = 0;
+                int skippedMoves = 0;
+                foreach (Dictionary<string, string> row in sourceMoves.Rows.OrderBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "id"); }))
+                {
+                    int id = CsvInt(row, "id");
+                    if (id <= maxMoveId) continue;
+                    int typeId = CsvInt(row, "type_id");
+                    if (id >= 10000 || !typeRefs.ContainsKey(typeId))
+                    {
+                        skippedMoves++;
+                        continue;
+                    }
+                    moves.Add(BuildMove(row, moveNameMap, moveEffectMap, typeRefs));
+                    addedMoves++;
+                }
+
+                int addedAbilities = 0;
+                foreach (Dictionary<string, string> row in sourceAbilities.Rows.OrderBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "id"); }))
+                {
+                    int id = CsvInt(row, "id");
+                    if (id <= maxAbilityId) continue;
+                    abilities.Add(BuildAbility(row, abilityNameMap, abilityTextMap));
+                    addedAbilities++;
+                }
+
+                int addedItems = 0;
+                int skippedItems = 0;
+                foreach (Dictionary<string, string> row in sourceItems.Rows.OrderBy(delegate(Dictionary<string, string> r) { return CsvInt(r, "id"); }))
+                {
+                    int id = CsvInt(row, "id");
+                    if (id <= maxItemId) continue;
+                    if (!itemGenerations.ContainsKey(id))
+                    {
+                        skippedItems++;
+                        continue;
+                    }
+                    items.Add(BuildItem(row, itemNameMap, itemTextMap, itemGenerations));
+                    addedItems++;
+                }
+
+                raw["moves"] = moves;
+                raw["abilities"] = abilities;
+                raw["items"] = items;
+                UpdateMetaCounts(raw, moves.Count, abilities.Count, items.Count);
+
+                string outputDirectory = Path.GetDirectoryName(Path.GetFullPath(options.PreviewDataPath));
+                if (!string.IsNullOrWhiteSpace(outputDirectory))
+                {
+                    Directory.CreateDirectory(outputDirectory);
+                }
+                File.WriteAllText(options.PreviewDataPath, serializer.Serialize(raw), Encoding.UTF8);
+
+                report.PreviewSummary["Preview data"] = Path.GetFullPath(options.PreviewDataPath);
+                report.PreviewSummary["Added moves"] = addedMoves.ToString();
+                report.PreviewSummary["Skipped non-mainline/incomplete moves"] = skippedMoves.ToString();
+                report.PreviewSummary["Added abilities"] = addedAbilities.ToString();
+                report.PreviewSummary["Added items"] = addedItems.ToString();
+                report.PreviewSummary["Skipped items without generation availability"] = skippedItems.ToString();
+                report.PreviewSummary["Preview moves total"] = moves.Count.ToString();
+                report.PreviewSummary["Preview abilities total"] = abilities.Count.ToString();
+                report.PreviewSummary["Preview items total"] = items.Count.ToString();
+            }
+
+            private static Dictionary<string, object> BuildMove(
+                Dictionary<string, string> row,
+                Dictionary<int, Dictionary<string, string>> names,
+                Dictionary<int, Dictionary<string, string>> effects,
+                Dictionary<int, Dictionary<string, object>> typeRefs)
+            {
+                int id = CsvInt(row, "id");
+                int typeId = CsvInt(row, "type_id");
+                int damageClassId = CsvInt(row, "damage_class_id");
+                int effectId = CsvInt(row, "effect_id");
+                var move = new Dictionary<string, object>();
+                move["id"] = id;
+                move["generation"] = CsvInt(row, "generation_id");
+                move["names"] = TextOrIdentifier(names, id, CsvValue(row, "identifier"));
+                move["type"] = typeRefs.ContainsKey(typeId) ? typeRefs[typeId] : MakeNamedRef(typeId, CsvValue(row, "type_id"));
+                move["category"] = MoveCategoryRef(damageClassId);
+                move["power"] = NullableInt(row, "power");
+                move["accuracy"] = NullableInt(row, "accuracy");
+                move["pp"] = NullableInt(row, "pp");
+                move["priority"] = CsvInt(row, "priority");
+                move["rangeId"] = MoveRangeId(CsvInt(row, "target_id"));
+                move["descriptions"] = TextOrIdentifier(effects, effectId, CsvValue(row, "identifier"));
+                return move;
+            }
+
+            private static Dictionary<string, object> BuildAbility(
+                Dictionary<string, string> row,
+                Dictionary<int, Dictionary<string, string>> names,
+                Dictionary<int, Dictionary<string, string>> effects)
+            {
+                int id = CsvInt(row, "id");
+                var ability = new Dictionary<string, object>();
+                ability["id"] = id;
+                ability["generation"] = CsvInt(row, "generation_id");
+                ability["names"] = TextOrIdentifier(names, id, CsvValue(row, "identifier"));
+                ability["trigger"] = null;
+                ability["target"] = null;
+                ability["effectOn"] = null;
+                ability["descriptions"] = TextOrIdentifier(effects, id, CsvValue(row, "identifier"));
+                return ability;
+            }
+
+            private static Dictionary<string, object> BuildItem(
+                Dictionary<string, string> row,
+                Dictionary<int, Dictionary<string, string>> names,
+                Dictionary<int, Dictionary<string, string>> effects,
+                Dictionary<int, List<int>> generationMap)
+            {
+                int id = CsvInt(row, "id");
+                List<int> generations;
+                if (!generationMap.TryGetValue(id, out generations)) generations = new List<int>();
+                var item = new Dictionary<string, object>();
+                item["id"] = id;
+                item["names"] = TextOrIdentifier(names, id, CsvValue(row, "identifier"));
+                item["descriptions"] = TextOrIdentifier(effects, id, CsvValue(row, "identifier"));
+                item["price"] = CsvInt(row, "cost");
+                item["bagId"] = CsvInt(row, "category_id");
+                item["flags"] = new Dictionary<string, object>
+                {
+                    { "inGen1", false },
+                    { "inGen2", false },
+                    { "inGen3", false },
+                    { "inGen4", false },
+                    { "inGen5", false },
+                    { "inGen6", false },
+                    { "inGen7", false },
+                    { "inBattle", false },
+                    { "outBattle", false },
+                    { "oneTime", false },
+                    { "heldEffect", false },
+                    { "evolveRelated", false }
+                };
+                item["generations"] = generations;
+                item["versionGroups"] = new List<int>();
+                return item;
+            }
+
+            private static Dictionary<int, Dictionary<string, string>> BuildLocalizedTextMap(CsvTable table, string idColumn, string textColumn)
+            {
+                var result = new Dictionary<int, Dictionary<string, string>>();
+                foreach (Dictionary<string, string> row in table.Rows)
+                {
+                    int id = CsvInt(row, idColumn);
+                    int languageId = CsvInt(row, "local_language_id");
+                    string languageKey;
+                    if (id <= 0 || !LanguageKeys.TryGetValue(languageId, out languageKey)) continue;
+                    Dictionary<string, string> values;
+                    if (!result.TryGetValue(id, out values))
+                    {
+                        values = new Dictionary<string, string>();
+                        result.Add(id, values);
+                    }
+                    values[languageKey] = CsvValue(row, textColumn);
+                }
+                return result;
+            }
+
+            private static Dictionary<int, List<int>> BuildItemGenerationMap(CsvTable table)
+            {
+                var result = new Dictionary<int, List<int>>();
+                foreach (Dictionary<string, string> row in table.Rows)
+                {
+                    int itemId = CsvInt(row, "item_id");
+                    int generationId = CsvInt(row, "generation_id");
+                    if (itemId <= 0 || generationId <= 0) continue;
+                    List<int> generations;
+                    if (!result.TryGetValue(itemId, out generations))
+                    {
+                        generations = new List<int>();
+                        result.Add(itemId, generations);
+                    }
+                    if (!generations.Contains(generationId)) generations.Add(generationId);
+                }
+                foreach (List<int> generations in result.Values)
+                {
+                    generations.Sort();
+                }
+                return result;
+            }
+
+            private static Dictionary<int, Dictionary<string, object>> BuildTypeRefs(Dictionary<string, object> raw)
+            {
+                var result = new Dictionary<int, Dictionary<string, object>>();
+                foreach (object value in RawList(raw, "types"))
+                {
+                    var type = value as Dictionary<string, object>;
+                    if (type == null) continue;
+                    int id = ObjectInt(type.ContainsKey("id") ? type["id"] : null);
+                    if (id > 0 && !result.ContainsKey(id)) result.Add(id, type);
+                }
+                return result;
+            }
+
+            private static Dictionary<string, object> MoveCategoryRef(int damageClassId)
+            {
+                switch (damageClassId)
+                {
+                    case 2: return MakeNamedRef(1, "物理", "Physical");
+                    case 3: return MakeNamedRef(2, "特殊", "Special");
+                    default: return MakeNamedRef(3, "变化", "Status");
+                }
+            }
+
+            private static int MoveRangeId(int targetId)
+            {
+                switch (targetId)
+                {
+                    case 3: return 2;
+                    case 4:
+                    case 6:
+                    case 12: return 9;
+                    case 7: return 8;
+                    case 9:
+                    case 14: return 5;
+                    case 11: return 6;
+                    case 13:
+                    case 15: return 4;
+                    default: return 1;
+                }
+            }
+
+            private static Dictionary<string, object> MakeNamedRef(int id, string zhCN)
+            {
+                return MakeNamedRef(id, zhCN, zhCN);
+            }
+
+            private static Dictionary<string, object> MakeNamedRef(int id, string zhCN, string en)
+            {
+                var names = new Dictionary<string, object>();
+                names["en"] = en;
+                names["zhCN"] = zhCN;
+                names["zhTW"] = zhCN;
+                var result = new Dictionary<string, object>();
+                result["id"] = id;
+                result["names"] = names;
+                return result;
+            }
+
+            private static Dictionary<string, string> TextOrIdentifier(Dictionary<int, Dictionary<string, string>> map, int id, string identifier)
+            {
+                Dictionary<string, string> values;
+                if (map.TryGetValue(id, out values) && values.Count > 0) return values;
+                return new Dictionary<string, string> { { "en", identifier }, { "zhCN", identifier } };
+            }
+
+            private static object NullableInt(Dictionary<string, string> row, string column)
+            {
+                string value = CsvValue(row, column);
+                if (string.IsNullOrWhiteSpace(value)) return null;
+                int parsed;
+                return int.TryParse(value, out parsed) ? (object)parsed : null;
+            }
+
+            private static List<object> RawList(Dictionary<string, object> root, string key)
+            {
+                object value;
+                if (!root.TryGetValue(key, out value) || value == null) return new List<object>();
+                object[] array = value as object[];
+                if (array != null) return array.ToList();
+                List<object> list = value as List<object>;
+                if (list != null) return list;
+                return new List<object>();
+            }
+
+            private static int MaxRawId(List<object> rows, string key)
+            {
+                int max = 0;
+                foreach (object value in rows)
+                {
+                    var row = value as Dictionary<string, object>;
+                    if (row == null || !row.ContainsKey(key)) continue;
+                    int id = ObjectInt(row[key]);
+                    if (id > max) max = id;
+                }
+                return max;
+            }
+
+            private static int ObjectInt(object value)
+            {
+                if (value == null) return 0;
+                int parsed;
+                return int.TryParse(value.ToString(), out parsed) ? parsed : 0;
+            }
+
+            private static int CsvInt(Dictionary<string, string> row, string column)
+            {
+                string value;
+                if (!row.TryGetValue(column, out value)) return 0;
+                int parsed;
+                return int.TryParse(value, out parsed) ? parsed : 0;
+            }
+
+            private static string CsvValue(Dictionary<string, string> row, string column)
+            {
+                string value;
+                return row.TryGetValue(column, out value) ? value : "";
+            }
+
+            private static void UpdateMetaCounts(Dictionary<string, object> root, int moves, int abilities, int items)
+            {
+                Dictionary<string, object> meta = root.ContainsKey("meta") ? root["meta"] as Dictionary<string, object> : null;
+                if (meta == null) return;
+                Dictionary<string, object> counts = meta.ContainsKey("counts") ? meta["counts"] as Dictionary<string, object> : null;
+                if (counts == null) return;
+                counts["moves"] = moves;
+                counts["abilities"] = abilities;
+                counts["items"] = items;
+            }
+        }
+
         private sealed class Options
         {
             public string DataPath { get; private set; }
             public string SourcePath { get; private set; }
             public string ReportPath { get; private set; }
             public string MapPath { get; private set; }
+            public string PreviewDataPath { get; private set; }
             public bool RequireSource { get; private set; }
             public bool ShowHelp { get; private set; }
 
@@ -862,6 +1244,10 @@ namespace PodexTools
                     {
                         options.MapPath = args[++i];
                     }
+                    else if (arg == "--preview-data" && i + 1 < args.Length)
+                    {
+                        options.PreviewDataPath = args[++i];
+                    }
                     else if (arg == "--require-source")
                     {
                         options.RequireSource = true;
@@ -876,7 +1262,7 @@ namespace PodexTools
 
             public static string HelpText()
             {
-                return "Usage: PodexDataImporter.exe --data <pokemon.json> --source <pokeapi-csv-dir> [--report <path>] [--map <path>] [--require-source]";
+                return "Usage: PodexDataImporter.exe --data <pokemon.json> --source <pokeapi-csv-dir> [--report <path>] [--map <path>] [--preview-data <path>] [--require-source]";
             }
         }
     }

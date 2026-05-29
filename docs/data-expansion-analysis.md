@@ -190,6 +190,7 @@ Implementation status:
 - `tools/import-data.ps1` builds and runs a preflight importer report.
 - The preflight report does not write `data/pokemon.json`; it only compares current data against source coverage and expansion candidates.
 - The importer also writes `artifacts/import-id-map-preview.csv`, a reviewable source-to-local ID mapping preview.
+- The importer can generate `artifacts/pokemon-catalog-preview.json` with added moves, abilities, and items only. Pokemon/forms/evolutions/learnsets remain out of preview until ID mapping is reviewed.
 
 ## Validation Checklist
 

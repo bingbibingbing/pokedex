@@ -3,6 +3,7 @@ param(
   [string]$SourcePath,
   [string]$ReportPath,
   [string]$MapPath,
+  [string]$PreviewDataPath,
   [switch]$RequireSource
 )
 
@@ -28,6 +29,10 @@ if (-not $ReportPath) {
 
 if (-not $MapPath) {
   $MapPath = Join-Path $Root "artifacts\import-id-map-preview.csv"
+}
+
+if (-not $PreviewDataPath) {
+  $PreviewDataPath = Join-Path $Root "artifacts\pokemon-catalog-preview.json"
 }
 
 if (-not (Test-Path $Csc)) {
@@ -60,7 +65,8 @@ $argsList = @(
   "--data", (Resolve-Path -LiteralPath $DataPath).Path,
   "--source", $SourcePath,
   "--report", $ReportPath,
-  "--map", $MapPath
+  "--map", $MapPath,
+  "--preview-data", $PreviewDataPath
 )
 
 if ($RequireSource) {
