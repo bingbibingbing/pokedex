@@ -3511,9 +3511,9 @@ namespace PodexDesktop
             };
             int attackLabelWidth = 34;
             int attackTypeWidth = 78;
-            int availableWidth = Math.Max(980, details.ClientSize.Width - details.Padding.Horizontal - 48);
-            int availableHeight = Math.Max(640, details.ClientSize.Height - details.Padding.Vertical - 32);
-            int typeCellWidth = Math.Max(52, Math.Min(66, (availableWidth - attackLabelWidth - attackTypeWidth) / Math.Max(1, types.Count)));
+            int availableWidth = Math.Max(760, details.ClientSize.Width - details.Padding.Horizontal - 96);
+            int availableHeight = Math.Max(600, details.ClientSize.Height - details.Padding.Vertical - 36);
+            int typeCellWidth = Math.Max(38, Math.Min(58, (availableWidth - attackLabelWidth - attackTypeWidth - 26) / Math.Max(1, types.Count)));
             int typeCellHeight = Math.Max(30, Math.Min(38, (availableHeight - 72) / Math.Max(1, types.Count)));
             int titleRowHeight = Math.Max(36, typeCellHeight + 4);
             int typeHeaderHeight = Math.Max(32, typeCellHeight);
@@ -3610,29 +3610,32 @@ namespace PodexDesktop
             var table = new TableLayoutPanel
             {
                 AutoSize = true,
-                ColumnCount = natures.Count + 1,
-                RowCount = headers.Length + 1,
+                ColumnCount = headers.Length + 1,
+                RowCount = natures.Count + 1,
                 CellBorderStyle = TableLayoutPanelCellBorderStyle.Single,
                 BackColor = Color.White,
                 Margin = new Padding(0)
             };
-            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 76));
-            for (int i = 0; i < natures.Count; i++) table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64));
+            int availableWidth = Math.Max(720, details.ClientSize.Width - details.Padding.Horizontal - 96);
+            int natureNameWidth = Math.Max(150, Math.Min(220, availableWidth / 4));
+            int modifierWidth = Math.Max(92, (availableWidth - natureNameWidth - 12) / headers.Length);
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, natureNameWidth));
+            for (int i = 0; i < headers.Length; i++) table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, modifierWidth));
             table.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
-            for (int i = 0; i < headers.Length; i++) table.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+            for (int i = 0; i < natures.Count; i++) table.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
 
             table.Controls.Add(MakeMatrixHeaderCell("", Color.White, Color.Black), 0, 0);
-            for (int col = 0; col < natures.Count; col++)
+            for (int col = 0; col < headers.Length; col++)
             {
-                table.Controls.Add(MakeNatureHeaderBadge(LocalName(natures[col].names)), col + 1, 0);
+                table.Controls.Add(MakeNatureHeaderBadge(headers[col]), col + 1, 0);
             }
 
-            for (int row = 0; row < headers.Length; row++)
+            for (int row = 0; row < natures.Count; row++)
             {
-                table.Controls.Add(MakeNatureStatCell(headers[row]), 0, row + 1);
-                for (int col = 0; col < natures.Count; col++)
+                table.Controls.Add(MakeNatureNameCell(LocalName(natures[row].names)), 0, row + 1);
+                for (int col = 0; col < headers.Length; col++)
                 {
-                    table.Controls.Add(MakeNatureModifierCell(NatureModifierAt(natures[col].modifiers, row)), col + 1, row + 1);
+                    table.Controls.Add(MakeNatureModifierCell(NatureModifierAt(natures[row].modifiers, col)), col + 1, row + 1);
                 }
             }
 
@@ -3644,9 +3647,9 @@ namespace PodexDesktop
             return MakeMatrixHeaderCell(text, Color.FromArgb(183, 158, 133), Color.White);
         }
 
-        private static Control MakeNatureStatCell(string text)
+        private static Control MakeNatureNameCell(string text)
         {
-            return MakeMatrixHeaderCell(text, Color.FromArgb(238, 230, 197), Color.Black);
+            return MakeMatrixHeaderCell(text, Color.White, Color.Black, ContentAlignment.MiddleLeft);
         }
 
         private static Control MakeNatureModifierCell(double value)
