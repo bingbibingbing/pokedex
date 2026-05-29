@@ -1210,6 +1210,7 @@ namespace PodexDesktop
                 ColumnHeadersHeight = 28,
                 RowTemplate = { Height = 22 },
                 ScrollBars = ScrollBars.Vertical,
+                ShowCellToolTips = true,
                 Margin = new Padding(0)
             };
             grid.ColumnHeadersDefaultCellStyle.Font = new Font("Microsoft YaHei UI", 8.5f, FontStyle.Regular);
@@ -1276,6 +1277,7 @@ namespace PodexDesktop
                     MoveValue(move.priority)
                 );
                 grid.Rows[rowIndex].Tag = move.id;
+                ApplyMoveTooltip(grid.Rows[rowIndex], move);
             }
         }
 
@@ -1698,7 +1700,8 @@ namespace PodexDesktop
                 BorderStyle = BorderStyle.FixedSingle,
                 ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
                 ColumnHeadersHeight = 24,
-                RowTemplate = { Height = 22 }
+                RowTemplate = { Height = 22 },
+                ShowCellToolTips = true
             };
             grid.Columns.Add(MakeTextColumn("level", "Lv.", 72));
             grid.Columns.Add(MakeTextColumn("move", "招式", fillParent ? 96 : 132));
@@ -1755,7 +1758,7 @@ namespace PodexDesktop
             {
                 MoveEntry move;
                 movesById.TryGetValue(row.moveId, out move);
-                grid.Rows.Add(
+                int rowIndex = grid.Rows.Add(
                     LevelName(row.levelId),
                     move == null ? "#" + row.moveId : LocalName(move.names),
                     LoadCellImage(move == null || move.type == null ? "" : TypeImagePath(move.type.id)),
@@ -1766,6 +1769,7 @@ namespace PodexDesktop
                     LoadCellImage(move == null ? "" : MoveRangeImagePath(move.rangeId)),
                     move == null ? "--" : MoveValue(move.priority)
                 );
+                ApplyMoveTooltip(grid.Rows[rowIndex], move);
             }
 
             UpdateMoveSortGlyph(grid, sortColumn, sortAscending);
@@ -2919,6 +2923,24 @@ namespace PodexDesktop
         {
             string text = ValueOrDash(value);
             return text == "-1" ? "--" : text;
+        }
+
+        private static void ApplyMoveTooltip(DataGridViewRow row, MoveEntry move)
+        {
+            string tooltip = MoveTooltipText(move);
+            if (string.IsNullOrWhiteSpace(tooltip)) return;
+            foreach (DataGridViewCell cell in row.Cells)
+            {
+                cell.ToolTipText = tooltip;
+            }
+        }
+
+        private static string MoveTooltipText(MoveEntry move)
+        {
+            if (move == null) return "";
+            string description = LocalName(move.descriptions);
+            if (!string.IsNullOrWhiteSpace(description)) return description;
+            return LocalName(move.names);
         }
 
         private static double ParseMultiplier(string value)
