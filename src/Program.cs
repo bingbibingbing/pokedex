@@ -60,6 +60,7 @@ namespace PodexDesktop
         private bool moveFilterCatalogSortAscending = true;
         private int moveFilterConditionSortColumn;
         private bool moveFilterConditionSortAscending = true;
+        private int moveFilterGameId = -1;
 
         public MainForm()
         {
@@ -279,6 +280,7 @@ namespace PodexDesktop
             evolutionsByFamilyId.Clear();
             learnsetsByPokemonId.Clear();
             learnsetsByMoveId.Clear();
+            moveFilterGameId = -1;
 
             foreach (var p in root.pokemon)
             {
@@ -336,6 +338,7 @@ namespace PodexDesktop
             {
                 AddIndexedLearnset(learnsetsByPokemonId, entry.pokemonId, entry);
                 AddIndexedLearnset(learnsetsByMoveId, entry.moveId, entry);
+                if (entry.gameId > moveFilterGameId) moveFilterGameId = entry.gameId;
             }
 
             foreach (var family in evolutionsByFamilyId.Values)
@@ -681,6 +684,7 @@ namespace PodexDesktop
         {
             if (moveFilterMoveIds.Count == 0) return true;
 
+            int gameId = CurrentMoveFilterGameId();
             List<LearnsetEntry> rows;
             if (!learnsetsByPokemonId.TryGetValue(p.legacyId, out rows)) return false;
 
@@ -689,7 +693,7 @@ namespace PodexDesktop
                 bool found = false;
                 foreach (var row in rows)
                 {
-                    if (row.moveId == moveId)
+                    if (row.gameId == gameId && row.moveId == moveId)
                     {
                         found = true;
                         break;
@@ -699,6 +703,18 @@ namespace PodexDesktop
             }
 
             return true;
+        }
+
+        private int CurrentMoveFilterGameId()
+        {
+            if (moveFilterGameId > 0) return moveFilterGameId;
+            int gameId = -1;
+            foreach (var row in root.learnsets)
+            {
+                if (row.gameId > gameId) gameId = row.gameId;
+            }
+            moveFilterGameId = gameId;
+            return gameId;
         }
 
         private void AddPokemonRow(PokemonEntry p)
@@ -1191,19 +1207,21 @@ namespace PodexDesktop
                 BackgroundColor = Color.FromArgb(255, 250, 237),
                 BorderStyle = BorderStyle.FixedSingle,
                 ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
-                ColumnHeadersHeight = 22,
+                ColumnHeadersHeight = 28,
                 RowTemplate = { Height = 22 },
                 ScrollBars = ScrollBars.Vertical,
                 Margin = new Padding(0)
             };
+            grid.ColumnHeadersDefaultCellStyle.Font = new Font("Microsoft YaHei UI", 8.5f, FontStyle.Regular);
+            grid.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
             grid.Columns.Add(MakeTextColumn("id", "#", 34));
             grid.Columns.Add(MakeTextColumn("move", "名字", 112));
-            grid.Columns.Add(MakeImageColumn("type", "属性", 40));
-            grid.Columns.Add(MakeImageColumn("category", "分类", 40));
+            grid.Columns.Add(MakeImageColumn("type", "属性", 44));
+            grid.Columns.Add(MakeImageColumn("category", "分类", 44));
             grid.Columns.Add(MakeTextColumn("power", "威", 34));
             grid.Columns.Add(MakeTextColumn("accuracy", "命", 34));
             grid.Columns.Add(MakeTextColumn("pp", "PP", 32));
-            grid.Columns.Add(MakeImageColumn("range", "范围", 40));
+            grid.Columns.Add(MakeImageColumn("range", "范围", 46));
             grid.Columns.Add(MakeTextColumn("priority", "优", 32));
             foreach (DataGridViewColumn column in grid.Columns)
             {
