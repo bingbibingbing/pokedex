@@ -514,12 +514,15 @@ namespace PodexDesktop
             {
                 list.SmallImageList = null;
                 titleLabel.Text = "招式";
-                list.Columns.Add("#", 64);
-                list.Columns.Add("名字", 136);
-                list.Columns.Add("English", 136);
-                list.Columns.Add("属性", 76);
-                list.Columns.Add("分类", 76);
-                list.Columns.Add("威力", 58);
+                list.Columns.Add("#", 44);
+                list.Columns.Add("名字", 132);
+                list.Columns.Add("属性", 54);
+                list.Columns.Add("分类", 58);
+                list.Columns.Add("威", 38);
+                list.Columns.Add("命", 38);
+                list.Columns.Add("PP", 38);
+                list.Columns.Add("范围", 50);
+                list.Columns.Add("优", 34);
             }
             else if (module == "abilities")
             {
@@ -805,10 +808,13 @@ namespace PodexDesktop
         {
             var item = new ListViewItem(m.id.ToString());
             item.SubItems.Add(LocalName(m.names));
-            item.SubItems.Add(EnglishName(m.names));
             AddTypeSubItem(item, m.type);
-            item.SubItems.Add(m.category == null ? "" : LocalName(m.category.names));
-            item.SubItems.Add(ValueOrDash(m.power));
+            AddCategorySubItem(item, m.category);
+            item.SubItems.Add(MoveValue(m.power));
+            item.SubItems.Add(MoveValue(m.accuracy));
+            item.SubItems.Add(MoveValue(m.pp));
+            item.SubItems.Add(MoveValue(m.rangeId));
+            item.SubItems.Add(MoveValue(m.priority));
             item.Tag = m;
             list.Items.Add(item);
         }
@@ -2281,19 +2287,235 @@ namespace PodexDesktop
 
         private void ShowMove(MoveEntry m)
         {
-            var stack = StartDetail(LocalName(m.names), "#" + m.id + " / " + EnglishName(m.names));
-            stack.Controls.Add(MakeFacts(new[]
+            details.Controls.Add(MakeMoveDetailPanel(m));
+        }
+
+        private Control MakeMoveDetailPanel(MoveEntry move)
+        {
+            var layout = new TableLayoutPanel
             {
-                Tuple.Create("世代", "第" + m.generation + "世代"),
-                Tuple.Create("属性", m.type == null ? "--" : LocalName(m.type.names)),
-                Tuple.Create("分类", m.category == null ? "--" : LocalName(m.category.names)),
-                Tuple.Create("威力", ValueOrDash(m.power)),
-                Tuple.Create("命中", ValueOrDash(m.accuracy)),
-                Tuple.Create("PP", ValueOrDash(m.pp)),
-                Tuple.Create("优先级", ValueOrDash(m.priority)),
-                Tuple.Create("范围ID", ValueOrDash(m.rangeId))
-            }));
-            stack.Controls.Add(MakeBodyLabel(LocalName(m.descriptions)));
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 2,
+                BackColor = Color.FromArgb(255, 250, 237),
+                Margin = new Padding(0)
+            };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 172));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+            var top = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1,
+                Margin = new Padding(0, 0, 0, 4),
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
+            top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62));
+            top.Controls.Add(MakeMoveDescriptionBox(move), 0, 0);
+            top.Controls.Add(MakeMoveFilterBox(move), 1, 0);
+
+            var pokemonGrid = MakeMovePokemonGrid();
+            FillMovePokemonGrid(pokemonGrid, move);
+
+            layout.Controls.Add(top, 0, 0);
+            layout.Controls.Add(pokemonGrid, 0, 1);
+            return layout;
+        }
+
+        private Control MakeMoveDescriptionBox(MoveEntry move)
+        {
+            var group = new GroupBox
+            {
+                Text = "描述",
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0, 0, 5, 0),
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            var text = new TextBox
+            {
+                Dock = DockStyle.Fill,
+                Multiline = true,
+                ReadOnly = true,
+                BorderStyle = BorderStyle.None,
+                ScrollBars = ScrollBars.Vertical,
+                BackColor = Color.FromArgb(255, 250, 237),
+                ForeColor = Color.Blue,
+                Font = new Font("Segoe UI", 9f),
+                Text = LocalName(move.descriptions),
+                Margin = new Padding(4)
+            };
+            group.Controls.Add(text);
+            return group;
+        }
+
+        private Control MakeMoveFilterBox(MoveEntry move)
+        {
+            var group = new GroupBox
+            {
+                Text = "筛选",
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0),
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+
+            var panel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 4,
+                RowCount = 6,
+                Padding = new Padding(4, 2, 4, 4),
+                BackColor = Color.FromArgb(255, 250, 237)
+            };
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 70));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
+            for (int i = 0; i < 6; i++) panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 25));
+
+            AddMoveFilterSearchRow(panel, 0);
+            AddMoveFilterValueRow(panel, 1, "威力", MoveValue(move.power));
+            AddMoveFilterValueRow(panel, 2, "命中", MoveValue(move.accuracy));
+            AddMoveFilterValueRow(panel, 3, "PP", MoveValue(move.pp));
+            AddMoveFilterValueRow(panel, 4, "世代", "第" + move.generation + "世代");
+            AddMoveFilterValueRow(panel, 5, "优先级", MoveValue(move.priority));
+
+            group.Controls.Add(panel);
+            return group;
+        }
+
+        private static void AddMoveFilterSearchRow(TableLayoutPanel panel, int row)
+        {
+            panel.Controls.Add(new Label
+            {
+                Text = "⌕",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleCenter,
+                ForeColor = Color.FromArgb(40, 79, 145),
+                Font = new Font("Segoe UI", 15f, FontStyle.Bold),
+                Margin = new Padding(0)
+            }, 0, row);
+            var search = new TextBox
+            {
+                Dock = DockStyle.Fill,
+                BorderStyle = BorderStyle.FixedSingle,
+                Margin = new Padding(0, 2, 4, 2)
+            };
+            panel.Controls.Add(search, 1, row);
+            panel.SetColumnSpan(search, 2);
+            panel.Controls.Add(MakeDisabledFilterButton(), 3, row);
+        }
+
+        private static void AddMoveFilterValueRow(TableLayoutPanel panel, int row, string label, string value)
+        {
+            panel.Controls.Add(new CheckBox { Dock = DockStyle.Fill, Enabled = false, Margin = new Padding(0, 5, 0, 0) }, 0, row);
+            panel.Controls.Add(new Label
+            {
+                Text = label,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                ForeColor = Color.FromArgb(23, 32, 27),
+                Font = new Font("Segoe UI", 9f),
+                Margin = new Padding(0)
+            }, 1, row);
+            var text = new TextBox
+            {
+                Dock = DockStyle.Fill,
+                ReadOnly = true,
+                BorderStyle = BorderStyle.FixedSingle,
+                Text = string.IsNullOrWhiteSpace(value) ? "--" : value,
+                BackColor = Color.FromArgb(230, 230, 230),
+                Margin = new Padding(0, 2, 4, 2)
+            };
+            panel.Controls.Add(text, 2, row);
+            panel.Controls.Add(MakeDisabledFilterButton(), 3, row);
+        }
+
+        private static Button MakeDisabledFilterButton()
+        {
+            return new Button
+            {
+                Text = "+",
+                Dock = DockStyle.Fill,
+                Enabled = false,
+                Margin = new Padding(1, 2, 0, 2)
+            };
+        }
+
+        private DataGridView MakeMovePokemonGrid()
+        {
+            var grid = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                ReadOnly = true,
+                AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false,
+                AllowUserToResizeRows = false,
+                RowHeadersVisible = false,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                MultiSelect = false,
+                BackgroundColor = Color.FromArgb(255, 250, 237),
+                BorderStyle = BorderStyle.FixedSingle,
+                ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
+                ColumnHeadersHeight = 24,
+                RowTemplate = { Height = 22 },
+                ScrollBars = ScrollBars.Vertical
+            };
+            grid.Columns.Add(MakeTextColumn("number", "#", 44));
+            grid.Columns.Add(MakeImageColumn("icon", "", 28));
+            grid.Columns.Add(MakeTextColumn("name", "宝可梦", 116));
+            grid.Columns.Add(MakeTextColumn("type1", "属性", 54));
+            grid.Columns.Add(MakeTextColumn("type2", "属性", 54));
+            grid.Columns.Add(MakeTextColumn("level", "Lv.", 78));
+            grid.Columns["name"].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+            grid.Columns["name"].MinimumWidth = 96;
+            foreach (DataGridViewColumn column in grid.Columns)
+            {
+                column.SortMode = DataGridViewColumnSortMode.NotSortable;
+            }
+            grid.CellDoubleClick += delegate(object sender, DataGridViewCellEventArgs e)
+            {
+                if (e.RowIndex >= 0 && e.RowIndex < grid.Rows.Count && grid.Rows[e.RowIndex].Tag is int)
+                {
+                    NavigateToPokemon((int)grid.Rows[e.RowIndex].Tag);
+                }
+            };
+            return grid;
+        }
+
+        private void FillMovePokemonGrid(DataGridView grid, MoveEntry move)
+        {
+            grid.Rows.Clear();
+            List<LearnsetEntry> rows;
+            if (!learnsetsByMoveId.TryGetValue(move.id, out rows)) return;
+
+            int gameId = CurrentMoveFilterGameId();
+            foreach (var row in rows
+                .Where(r => r.gameId == gameId)
+                .OrderBy(r => r.pokemonId)
+                .ThenBy(r => LearnLevelSort(r.levelId)))
+            {
+                PokemonEntry pokemon = FindPokemon(row.pokemonId);
+                if (pokemon == null) continue;
+                int rowIndex = grid.Rows.Add(
+                    pokemon.nationalDex.ToString(),
+                    LoadPokemonSmallCellImage(pokemon.legacyId),
+                    LocalName(pokemon.names),
+                    TypeNameAt(pokemon.types, 0),
+                    TypeNameAt(pokemon.types, 1),
+                    LevelName(row.levelId)
+                );
+                grid.Rows[rowIndex].Tag = pokemon.legacyId;
+                StyleMovePokemonGridRow(grid.Rows[rowIndex], pokemon);
+            }
+        }
+
+        private static void StyleMovePokemonGridRow(DataGridViewRow row, PokemonEntry pokemon)
+        {
+            StyleAbilityTypeCell(row.Cells["type1"], TypeAt(pokemon.types, 0));
+            StyleAbilityTypeCell(row.Cells["type2"], TypeAt(pokemon.types, 1));
         }
 
         private void ShowAbility(AbilityEntry a)
