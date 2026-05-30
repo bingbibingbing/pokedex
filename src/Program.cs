@@ -88,6 +88,9 @@ namespace PodexDesktop
         private bool pokemonSmallImagesLoaded;
         private bool itemSmallImagesLoaded;
         private bool suppressAutoSelectFirstItem;
+        private bool switchingModule;
+        private string lastNavKey = "";
+        private DateTime lastNavClickUtc = DateTime.MinValue;
         private ListViewItem tooltipListItem;
         private int tooltipSubItemIndex = -1;
         private static readonly Font OriginalNameFont = new Font("SimSun", 9f, FontStyle.Regular);
@@ -277,7 +280,10 @@ namespace PodexDesktop
                 Padding = new Padding(10, 0, 0, 0)
             };
             button.FlatAppearance.BorderSize = 0;
-            button.Click += delegate { SelectModule((string)button.Tag); };
+            button.TabStop = false;
+            button.UseMnemonic = false;
+            button.Click += delegate { SelectModuleFromNav((string)button.Tag); };
+            button.DoubleClick += delegate { };
             navPanel.Controls.Add(button);
             button.BringToFront();
         }
@@ -497,31 +503,50 @@ namespace PodexDesktop
 
         private void SelectModule(string key)
         {
+            if (switchingModule || string.IsNullOrWhiteSpace(key) || key == module) return;
+            switchingModule = true;
             HideListTooltip();
-            RunWithRedrawSuspended(this, delegate
+            try
             {
-                SuspendLayout();
-                if (mainSplit != null) mainSplit.SuspendLayout();
-                try
+                RunWithRedrawSuspended(this, delegate
                 {
-                    module = key;
-                    sortColumn = -1;
-                    sortAscending = true;
-                    ConfigureModuleChrome();
-                    rebuildingFilters = true;
-                    searchBox.Clear();
-                    rebuildingFilters = false;
-                    ConfigureListColumns();
-                    BuildFilters();
-                    ApplyFilters();
-                    ApplyOriginalLikeSplitter();
-                }
-                finally
-                {
-                    if (mainSplit != null) mainSplit.ResumeLayout(false);
-                    ResumeLayout(true);
-                }
-            });
+                    SuspendLayout();
+                    if (mainSplit != null) mainSplit.SuspendLayout();
+                    try
+                    {
+                        module = key;
+                        sortColumn = -1;
+                        sortAscending = true;
+                        ConfigureModuleChrome();
+                        rebuildingFilters = true;
+                        searchBox.Clear();
+                        rebuildingFilters = false;
+                        ConfigureListColumns();
+                        BuildFilters();
+                        ApplyFilters();
+                        ApplyOriginalLikeSplitter();
+                    }
+                    finally
+                    {
+                        if (mainSplit != null) mainSplit.ResumeLayout(false);
+                        ResumeLayout(true);
+                    }
+                });
+            }
+            finally
+            {
+                switchingModule = false;
+            }
+        }
+
+        private void SelectModuleFromNav(string key)
+        {
+            DateTime now = DateTime.UtcNow;
+            if (key == module) return;
+            if (key == lastNavKey && (now - lastNavClickUtc).TotalMilliseconds < 450) return;
+            lastNavKey = key;
+            lastNavClickUtc = now;
+            SelectModule(key);
         }
 
         private void ConfigureModuleChrome()
