@@ -24,6 +24,7 @@ namespace PodexDesktop
 
     public sealed class MainForm : Form
     {
+        private const int AbilityUnclassifiedFilterId = -2;
         private readonly Panel navPanel = new Panel();
         private readonly Label titleLabel = new Label();
         private readonly Label statusLabel = new Label();
@@ -977,6 +978,8 @@ namespace PodexDesktop
             string typeId = SelectedValue(typeFilter);
             string generation = SelectedValue(generationFilter);
 
+            SanitizeDetailFiltersForCurrentGeneration();
+
             if (IsMatrixModule())
             {
                 list.BeginUpdate();
@@ -1177,23 +1180,138 @@ namespace PodexDesktop
 
         private bool AbilityMatchesDetailFilters(AbilityEntry ability)
         {
-            if (abilityFilterTriggerId > 0 && (ability.trigger == null || ability.trigger.id != abilityFilterTriggerId)) return false;
-            if (abilityFilterTargetId > 0 && (ability.target == null || ability.target.id != abilityFilterTargetId)) return false;
-            if (abilityFilterEffectOnId > 0 && (ability.effectOn == null || ability.effectOn.id != abilityFilterEffectOnId)) return false;
+            if (!AbilityNamedRefMatchesFilter(ability == null ? null : ability.trigger, abilityFilterTriggerId)) return false;
+            if (!AbilityNamedRefMatchesFilter(ability == null ? null : ability.target, abilityFilterTargetId)) return false;
+            if (!AbilityNamedRefMatchesFilter(ability == null ? null : ability.effectOn, abilityFilterEffectOnId)) return false;
             return true;
         }
 
         private bool ItemMatchesDetailFilters(ItemEntry item)
         {
             if (item == null) return false;
-            ItemFlags flags = item.flags;
-            if (!ItemBooleanFilterMatches(flags != null && flags.inBattle, itemFilterInBattle)) return false;
-            if (!ItemBooleanFilterMatches(flags != null && flags.outBattle, itemFilterOutBattle)) return false;
-            if (!ItemBooleanFilterMatches(flags != null && flags.oneTime, itemFilterOneTime)) return false;
-            if (!ItemBooleanFilterMatches(flags != null && flags.heldEffect, itemFilterHeldEffect)) return false;
-            if (!ItemBooleanFilterMatches(flags != null && flags.evolveRelated, itemFilterEvolveRelated)) return false;
-            if (itemFilterBagId > 0 && ObjectInt(item.bagId, -1) != itemFilterBagId) return false;
+            if (!ItemBooleanFilterMatches(ItemInBattleValue(item), itemFilterInBattle)) return false;
+            if (!ItemBooleanFilterMatches(ItemOutBattleValue(item), itemFilterOutBattle)) return false;
+            if (!ItemBooleanFilterMatches(ItemOneTimeValue(item), itemFilterOneTime)) return false;
+            if (!ItemBooleanFilterMatches(ItemHeldEffectValue(item), itemFilterHeldEffect)) return false;
+            if (!ItemBooleanFilterMatches(ItemEvolveRelatedValue(item), itemFilterEvolveRelated)) return false;
+            if (itemFilterBagId > 0 && ItemBagGroupId(ObjectInt(item.bagId, -1)) != itemFilterBagId) return false;
             return true;
+        }
+
+        private void SanitizeDetailFiltersForCurrentGeneration()
+        {
+            if (module == "abilities")
+            {
+                abilityFilterTriggerId = SanitizeAbilityFilter(abilityFilterTriggerId, a => a.trigger);
+                abilityFilterTargetId = SanitizeAbilityFilter(abilityFilterTargetId, a => a.target);
+                abilityFilterEffectOnId = SanitizeAbilityFilter(abilityFilterEffectOnId, a => a.effectOn);
+            }
+            else if (module == "items" && itemFilterBagId > 0)
+            {
+                if (!ItemBagIds().Contains(itemFilterBagId)) itemFilterBagId = -1;
+            }
+        }
+
+        private int SanitizeAbilityFilter(int filterId, Func<AbilityEntry, NamedRef> selector)
+        {
+            if (filterId == -1) return -1;
+            return AbilityFilterOptions(selector).Any(option => option.id == filterId) ? filterId : -1;
+        }
+
+        private static bool AbilityNamedRefMatchesFilter(NamedRef value, int filterId)
+        {
+            if (filterId == -1) return true;
+            if (filterId == AbilityUnclassifiedFilterId) return value == null || value.id <= 0;
+            return value != null && value.id == filterId;
+        }
+
+        private static bool ItemInBattleValue(ItemEntry item)
+        {
+            ItemFlags flags = item == null ? null : item.flags;
+            if (flags != null && flags.inBattle) return true;
+            int bagId = ObjectInt(item == null ? null : item.bagId, -1);
+            return bagId == 27 || bagId == 28 || bagId == 29 || bagId == 30 || bagId == 38 || bagId == 43 || bagId == 48;
+        }
+
+        private static bool ItemOutBattleValue(ItemEntry item)
+        {
+            ItemFlags flags = item == null ? null : item.flags;
+            if (flags != null && flags.outBattle) return true;
+            int bagId = ObjectInt(item == null ? null : item.bagId, -1);
+            switch (bagId)
+            {
+                case 10:
+                case 11:
+                case 26:
+                case 27:
+                case 28:
+                case 29:
+                case 30:
+                case 47:
+                case 48:
+                case 50:
+                case 52:
+                case 53:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool ItemOneTimeValue(ItemEntry item)
+        {
+            ItemFlags flags = item == null ? null : item.flags;
+            if (flags != null && flags.oneTime) return true;
+            int bagId = ObjectInt(item == null ? null : item.bagId, -1);
+            switch (bagId)
+            {
+                case 10:
+                case 24:
+                case 26:
+                case 27:
+                case 28:
+                case 29:
+                case 30:
+                case 47:
+                case 48:
+                case 50:
+                case 52:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool ItemHeldEffectValue(ItemEntry item)
+        {
+            ItemFlags flags = item == null ? null : item.flags;
+            if (flags != null && flags.heldEffect) return true;
+            int bagId = ObjectInt(item == null ? null : item.bagId, -1);
+            switch (bagId)
+            {
+                case 12:
+                case 13:
+                case 14:
+                case 15:
+                case 17:
+                case 18:
+                case 19:
+                case 23:
+                case 44:
+                case 45:
+                case 46:
+                case 49:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool ItemEvolveRelatedValue(ItemEntry item)
+        {
+            ItemFlags flags = item == null ? null : item.flags;
+            if (flags != null && flags.evolveRelated) return true;
+            return ObjectInt(item == null ? null : item.bagId, -1) == 10;
         }
 
         private static bool ItemBooleanFilterMatches(bool value, int filter)
@@ -1392,7 +1510,7 @@ namespace PodexDesktop
             var item = new ListViewItem(i.id.ToString());
             item.ImageKey = i.id.ToString();
             item.SubItems.Add(LocalName(i.names));
-            item.SubItems.Add(ValueOrDash(i.bagId));
+            item.SubItems.Add(ValueOrDash(ItemBagGroupId(ObjectInt(i.bagId, -1))));
             item.Tag = i;
             list.Items.Add(item);
         }
@@ -3651,9 +3769,9 @@ namespace PodexDesktop
             for (int i = 0; i < 4; i++) panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
 
             AddAbilityFilterSearchRow(panel, 0);
-            AddAbilityFilterOptionRow(panel, 1, "发动时间", AbilityFilterOptions(a => a.trigger), ability == null || ability.trigger == null ? -1 : ability.trigger.id, abilityFilterTriggerId, delegate(int id) { abilityFilterTriggerId = id; });
-            AddAbilityFilterOptionRow(panel, 2, "效果对象", AbilityFilterOptions(a => a.target), ability == null || ability.target == null ? -1 : ability.target.id, abilityFilterTargetId, delegate(int id) { abilityFilterTargetId = id; });
-            AddAbilityFilterOptionRow(panel, 3, "特性效果", AbilityFilterOptions(a => a.effectOn), ability == null || ability.effectOn == null ? -1 : ability.effectOn.id, abilityFilterEffectOnId, delegate(int id) { abilityFilterEffectOnId = id; });
+            AddAbilityFilterOptionRow(panel, 1, "发动时间", AbilityFilterOptions(a => a.trigger), ability == null ? -1 : AbilityFilterId(ability.trigger), abilityFilterTriggerId, delegate(int id) { abilityFilterTriggerId = id; });
+            AddAbilityFilterOptionRow(panel, 2, "效果对象", AbilityFilterOptions(a => a.target), ability == null ? -1 : AbilityFilterId(ability.target), abilityFilterTargetId, delegate(int id) { abilityFilterTargetId = id; });
+            AddAbilityFilterOptionRow(panel, 3, "特性效果", AbilityFilterOptions(a => a.effectOn), ability == null ? -1 : AbilityFilterId(ability.effectOn), abilityFilterEffectOnId, delegate(int id) { abilityFilterEffectOnId = id; });
 
             group.Controls.Add(panel);
             return group;
@@ -3689,7 +3807,8 @@ namespace PodexDesktop
 
         private void AddAbilityFilterOptionRow(TableLayoutPanel panel, int row, string label, List<NamedRef> options, int preferredId, int selectedId, Action<int> setFilter)
         {
-            var check = new CheckBox { Dock = DockStyle.Fill, Checked = selectedId > 0, Margin = new Padding(0, 6, 0, 0) };
+            bool hasOptions = options.Count > 0;
+            var check = new CheckBox { Dock = DockStyle.Fill, Checked = hasOptions && selectedId != -1, Enabled = hasOptions, Margin = new Padding(0, 6, 0, 0) };
             panel.Controls.Add(check, 0, row);
             panel.Controls.Add(new Label
             {
@@ -3705,21 +3824,27 @@ namespace PodexDesktop
             {
                 Dock = DockStyle.Fill,
                 DropDownStyle = ComboBoxStyle.DropDownList,
-                Enabled = selectedId > 0,
+                Enabled = hasOptions && selectedId != -1,
                 Margin = new Padding(0, 3, 4, 3)
             };
             foreach (var option in options)
             {
                 combo.Items.Add(new IdOption(option.id, LocalName(option.names)));
             }
-            SelectAbilityFilterOption(combo, selectedId > 0 ? selectedId : preferredId);
+            SelectAbilityFilterOption(combo, selectedId != -1 ? selectedId : preferredId);
             panel.Controls.Add(combo, 2, row);
 
             Button toggle = MakeAbilityFilterToggleButton(check, combo);
+            toggle.Enabled = hasOptions;
             panel.Controls.Add(toggle, 3, row);
 
             Action apply = delegate
             {
+                if (!hasOptions)
+                {
+                    setFilter(-1);
+                    return;
+                }
                 combo.Enabled = check.Checked;
                 toggle.Text = check.Checked ? "-" : "+";
                 int id = -1;
@@ -3751,15 +3876,37 @@ namespace PodexDesktop
         private List<NamedRef> AbilityFilterOptions(Func<AbilityEntry, NamedRef> selector)
         {
             var options = new Dictionary<int, NamedRef>();
+            bool hasUnclassified = false;
+            string generation = SelectedValue(generationFilter);
             foreach (var ability in root.abilities)
             {
+                if (generation.Length > 0 && ability.generation.ToString() != generation) continue;
                 NamedRef value = selector(ability);
+                if (value == null || value.id <= 0)
+                {
+                    hasUnclassified = true;
+                    continue;
+                }
                 if (value != null && !options.ContainsKey(value.id))
                 {
                     options.Add(value.id, value);
                 }
             }
-            return options.Values.OrderBy(v => LocalName(v.names)).ToList();
+            var result = options.Values.OrderBy(v => LocalName(v.names)).ToList();
+            if (hasUnclassified)
+            {
+                result.Insert(0, new NamedRef
+                {
+                    id = AbilityUnclassifiedFilterId,
+                    names = new Dictionary<string, string> { { "zhCN", "未分类" }, { "en", "Unclassified" } }
+                });
+            }
+            return result;
+        }
+
+        private static int AbilityFilterId(NamedRef value)
+        {
+            return value == null || value.id <= 0 ? AbilityUnclassifiedFilterId : value.id;
         }
 
         private static void SelectAbilityFilterOption(ComboBox combo, int id)
@@ -3980,11 +4127,11 @@ namespace PodexDesktop
             panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
 
             AddItemFilterSearchRow(panel, 0);
-            AddItemFilterBooleanRow(panel, 1, "战斗中可用", item != null && item.flags != null && item.flags.inBattle, itemFilterInBattle, delegate(int value) { itemFilterInBattle = value; });
-            AddItemFilterBooleanRow(panel, 2, "战斗外可用", item != null && item.flags != null && item.flags.outBattle, itemFilterOutBattle, delegate(int value) { itemFilterOutBattle = value; });
-            AddItemFilterBooleanRow(panel, 3, "一次性道具", item != null && item.flags != null && item.flags.oneTime, itemFilterOneTime, delegate(int value) { itemFilterOneTime = value; });
-            AddItemFilterBooleanRow(panel, 4, "携带有效", item != null && item.flags != null && item.flags.heldEffect, itemFilterHeldEffect, delegate(int value) { itemFilterHeldEffect = value; });
-            AddItemFilterBooleanRow(panel, 5, "进化相关", item != null && item.flags != null && item.flags.evolveRelated, itemFilterEvolveRelated, delegate(int value) { itemFilterEvolveRelated = value; });
+            AddItemFilterBooleanRow(panel, 1, "战斗中可用", ItemInBattleValue(item), itemFilterInBattle, delegate(int value) { itemFilterInBattle = value; });
+            AddItemFilterBooleanRow(panel, 2, "战斗外可用", ItemOutBattleValue(item), itemFilterOutBattle, delegate(int value) { itemFilterOutBattle = value; });
+            AddItemFilterBooleanRow(panel, 3, "一次性道具", ItemOneTimeValue(item), itemFilterOneTime, delegate(int value) { itemFilterOneTime = value; });
+            AddItemFilterBooleanRow(panel, 4, "携带有效", ItemHeldEffectValue(item), itemFilterHeldEffect, delegate(int value) { itemFilterHeldEffect = value; });
+            AddItemFilterBooleanRow(panel, 5, "进化相关", ItemEvolveRelatedValue(item), itemFilterEvolveRelated, delegate(int value) { itemFilterEvolveRelated = value; });
             AddItemBagFilterRow(panel, 6, item);
 
             group.Controls.Add(panel);
@@ -5054,9 +5201,81 @@ namespace PodexDesktop
             return representativeId <= 0 ? "" : ItemImagePath(representativeId, big);
         }
 
-        private static int[] ItemBagIds()
+        private int[] ItemBagIds()
         {
-            return new[] { 1, 2, 3, 5, 6, 7, 8 };
+            string generation = SelectedValue(generationFilter);
+            var ids = new HashSet<int>();
+            foreach (var item in root.items)
+            {
+                if (generation.Length > 0 && !ItemInGeneration(item, int.Parse(generation))) continue;
+                int groupId = ItemBagGroupId(ObjectInt(item == null ? null : item.bagId, -1));
+                if (groupId > 0) ids.Add(groupId);
+            }
+            int[] order = new[] { 1, 2, 3, 4, 5, 6, 7, 8 };
+            return order.Where(ids.Contains).Concat(ids.Where(id => !order.Contains(id)).OrderBy(id => id)).ToArray();
+        }
+
+        private static int ItemBagGroupId(int bagId)
+        {
+            switch (bagId)
+            {
+                case 9:
+                case 10:
+                case 11:
+                case 12:
+                case 13:
+                case 14:
+                case 15:
+                case 16:
+                case 17:
+                case 18:
+                case 19:
+                case 23:
+                case 24:
+                case 32:
+                case 35:
+                case 36:
+                case 42:
+                case 44:
+                case 45:
+                case 47:
+                case 49:
+                case 51:
+                case 52:
+                case 53:
+                case 54:
+                case 55:
+                    return 1;
+                case 26:
+                case 27:
+                case 28:
+                case 29:
+                case 30:
+                case 50:
+                    return 2;
+                case 33:
+                case 34:
+                case 39:
+                    return 3;
+                case 37:
+                    return 4;
+                case 25:
+                    return 6;
+                case 38:
+                case 43:
+                    return 7;
+                case 20:
+                case 21:
+                case 22:
+                case 40:
+                case 41:
+                case 46:
+                    return 8;
+                case 48:
+                    return 5;
+                default:
+                    return bagId;
+            }
         }
 
         private static int ItemBagRepresentativeItemId(int bagId)
@@ -5066,6 +5285,7 @@ namespace PodexDesktop
                 case 1: return 76;  // 道具
                 case 2: return 17;  // 回复
                 case 3: return 4;   // 精灵球
+                case 4: return 76;  // 招式学习器
                 case 5: return 149; // 树果
                 case 6: return 137; // 邮件
                 case 7: return 57;  // 战斗道具
@@ -5096,6 +5316,7 @@ namespace PodexDesktop
                 case 1: return "道具";
                 case 2: return "回复";
                 case 3: return "精灵球";
+                case 4: return "招式学习器";
                 case 5: return "树果";
                 case 6: return "邮件";
                 case 7: return "战斗道具";
