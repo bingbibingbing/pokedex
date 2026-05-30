@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Web.Script.Serialization;
+using Microsoft.VisualBasic;
 
 namespace PodexTools
 {
@@ -1010,7 +1011,10 @@ namespace PodexTools
                 Dictionary<int, Dictionary<string, string>> itemTextMap = BuildLocalizedTextMap(itemProse, "item_id", "short_effect");
                 List<ChineseOverride> overrides = LoadChineseOverrides(options.ChineseOverridePath);
                 ApplyChineseOverrides(overrides, pokemonNameMap, pokemonGenusMap, pokemonDescriptionOverrides, moveNameMap, moveDescriptionOverrides, abilityNameMap, abilityTextMap, itemNameMap, itemTextMap);
-                Dictionary<int, List<int>> itemGenerations = BuildItemGenerationMap(itemGameIndices);
+                FillSimplifiedChineseFallbacks(itemNameMap);
+                FillSimplifiedChineseFallbacks(itemTextMap);
+                Dictionary<int, List<int>> itemGenerations = BuildItemGenerationMap(itemGameIndices, sourceItems);
+                FillInferredItemChineseDescriptions(sourceItems, itemGenerations, itemTextMap);
                 Dictionary<int, Dictionary<string, object>> typeRefs = BuildTypeRefs(raw);
                 Dictionary<int, Dictionary<string, object>> abilityRefs = BuildNamedRefs(abilityNameMap);
                 Dictionary<int, Dictionary<string, object>> moveRefs = BuildNamedRefs(moveNameMap);
@@ -1586,7 +1590,60 @@ namespace PodexTools
                 return values;
             }
 
-            private static Dictionary<int, List<int>> BuildItemGenerationMap(CsvTable table)
+            private static void FillSimplifiedChineseFallbacks(Dictionary<int, Dictionary<string, string>> textMap)
+            {
+                foreach (Dictionary<string, string> values in textMap.Values)
+                {
+                    string zhCN;
+                    string zhTW;
+                    if (values.TryGetValue("zhCN", out zhCN) && !string.IsNullOrWhiteSpace(zhCN)) continue;
+                    if (!values.TryGetValue("zhTW", out zhTW) || string.IsNullOrWhiteSpace(zhTW)) continue;
+                    values["zhCN"] = Strings.StrConv(zhTW, VbStrConv.SimplifiedChinese, 0);
+                }
+            }
+
+            private static void FillInferredItemChineseDescriptions(
+                CsvTable items,
+                Dictionary<int, List<int>> generationMap,
+                Dictionary<int, Dictionary<string, string>> descriptions)
+            {
+                foreach (Dictionary<string, string> row in items.Rows)
+                {
+                    int itemId = CsvInt(row, "id");
+                    List<int> generations;
+                    if (itemId <= 0 || !generationMap.TryGetValue(itemId, out generations) || !generations.Any(delegate(int generation) { return generation >= 8; })) continue;
+                    if (HasChinese(descriptions, itemId)) continue;
+
+                    string text = InferredItemDescription(CsvInt(row, "category_id"), generations);
+                    Dictionary<string, string> values = EnsureTextMap(descriptions, itemId);
+                    values["zhCN"] = text;
+                    values["zhTW"] = text;
+                    values["en"] = text;
+                }
+            }
+
+            private static string InferredItemDescription(int categoryId, List<int> generations)
+            {
+                switch (categoryId)
+                {
+                    case 10: return "进化相关道具。";
+                    case 12: return "可携带道具。";
+                    case 20:
+                    case 21:
+                    case 22: return "重要物品。";
+                    case 26: return "培养用道具。";
+                    case 37: return "招式学习器。可让宝可梦学习对应招式。";
+                    case 52: return "太晶碎块。可用于改变宝可梦的太晶属性。";
+                    case 53: return "野餐食材。可用于制作三明治。";
+                    case 54: return "宝可梦素材。可用于制作招式学习器。";
+                    case 55: return "重要物品。";
+                    default:
+                        int generation = generations.Where(delegate(int value) { return value > 0; }).DefaultIfEmpty(0).Min();
+                        return generation > 0 ? "第" + generation.ToString(CultureInfo.InvariantCulture) + "世代道具。" : "道具。";
+                }
+            }
+
+            private static Dictionary<int, List<int>> BuildItemGenerationMap(CsvTable table, CsvTable items)
             {
                 var result = new Dictionary<int, List<int>>();
                 foreach (Dictionary<string, string> row in table.Rows)
@@ -1594,19 +1651,40 @@ namespace PodexTools
                     int itemId = CsvInt(row, "item_id");
                     int generationId = CsvInt(row, "generation_id");
                     if (itemId <= 0 || generationId <= 0) continue;
-                    List<int> generations;
-                    if (!result.TryGetValue(itemId, out generations))
-                    {
-                        generations = new List<int>();
-                        result.Add(itemId, generations);
-                    }
-                    if (!generations.Contains(generationId)) generations.Add(generationId);
+                    AddItemGeneration(result, itemId, generationId);
+                }
+                foreach (Dictionary<string, string> row in items.Rows)
+                {
+                    int itemId = CsvInt(row, "id");
+                    int inferredGeneration = InferItemGeneration(row);
+                    if (itemId > 0 && inferredGeneration > 0) AddItemGeneration(result, itemId, inferredGeneration);
                 }
                 foreach (List<int> generations in result.Values)
                 {
                     generations.Sort();
                 }
                 return result;
+            }
+
+            private static void AddItemGeneration(Dictionary<int, List<int>> result, int itemId, int generationId)
+            {
+                List<int> generations;
+                if (!result.TryGetValue(itemId, out generations))
+                {
+                    generations = new List<int>();
+                    result.Add(itemId, generations);
+                }
+                if (!generations.Contains(generationId)) generations.Add(generationId);
+            }
+
+            private static int InferItemGeneration(Dictionary<string, string> row)
+            {
+                int itemId = CsvInt(row, "id");
+                if (itemId >= 1659 && itemId <= 1664) return 8;
+                if (itemId == 1675 || itemId == 1676) return 8;
+                if (itemId == 2160) return 8;
+                if (itemId >= 1665) return 9;
+                return 0;
             }
 
             private static Dictionary<int, Dictionary<string, string>> BuildRowMap(CsvTable table, string idColumn)

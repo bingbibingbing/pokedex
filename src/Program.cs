@@ -673,7 +673,7 @@ namespace PodexDesktop
 
             if (e.ColumnIndex == 1)
             {
-                Image image = LoadCellImage(ItemImagePath(item.id, false));
+                Image image = LoadCellImage(ItemDisplayImagePath(item, false));
                 if (image != null)
                 {
                     Rectangle imageBounds = new Rectangle(e.Bounds.Left + 4, e.Bounds.Top + 2, 20, Math.Max(4, e.Bounds.Height - 4));
@@ -955,6 +955,7 @@ namespace PodexDesktop
 
             IEnumerable<int> generations = Enumerable.Empty<int>();
             if (module.StartsWith("pokemon")) generations = root.pokemon.Select(p => p.generation);
+            else if (module == "moves") generations = root.moves.Select(m => m.generation);
             else if (module == "abilities") generations = root.abilities.Select(a => a.generation);
             else if (module == "items") generations = root.items.SelectMany(ItemGenerationIds);
 
@@ -975,11 +976,6 @@ namespace PodexDesktop
             string query = (searchBox.Text ?? "").Trim().ToLowerInvariant();
             string typeId = SelectedValue(typeFilter);
             string generation = SelectedValue(generationFilter);
-            if (module == "moves")
-            {
-                // The legacy move page uses the embedded filter panel, not the global generation selector.
-                generation = "";
-            }
 
             if (IsMatrixModule())
             {
@@ -3899,7 +3895,7 @@ namespace PodexDesktop
                 BackColor = Color.White,
                 Margin = new Padding(0, 0, 6, 0)
             };
-            string imagePath = item == null ? "" : ItemImagePath(item.id, true);
+            string imagePath = ItemDisplayImagePath(item, true);
             if (!string.IsNullOrWhiteSpace(imagePath) && File.Exists(imagePath))
             {
                 picture.Image = Image.FromFile(imagePath);
@@ -5000,10 +4996,37 @@ namespace PodexDesktop
             return Path.Combine(imageRoot, "items", big ? "big" : "small", itemId + ".png");
         }
 
+        private string ItemDisplayImagePath(ItemEntry item, bool big)
+        {
+            if (item == null) return "";
+
+            string path = ItemImagePath(item.id, big);
+            if (File.Exists(path)) return path;
+
+            if (big)
+            {
+                path = ItemImagePath(item.id, false);
+                if (File.Exists(path)) return path;
+            }
+
+            path = ItemBagImagePath(item.bagId, big);
+            if (File.Exists(path)) return path;
+
+            path = ItemImagePath(76, big);
+            if (File.Exists(path)) return path;
+
+            return ItemImagePath(76, false);
+        }
+
         private string ItemBagImagePath(object bagId)
         {
+            return ItemBagImagePath(bagId, false);
+        }
+
+        private string ItemBagImagePath(object bagId, bool big)
+        {
             int representativeId = ItemBagRepresentativeItemId(ObjectInt(bagId, -1));
-            return representativeId <= 0 ? "" : ItemImagePath(representativeId, false);
+            return representativeId <= 0 ? "" : ItemImagePath(representativeId, big);
         }
 
         private static int[] ItemBagIds()
@@ -5022,6 +5045,21 @@ namespace PodexDesktop
                 case 6: return 137; // 邮件
                 case 7: return 57;  // 战斗道具
                 case 8: return 438; // 重要物品
+                case 10: return 76;
+                case 12: return 76;
+                case 20: return 438;
+                case 21: return 438;
+                case 22: return 438;
+                case 23: return 438;
+                case 24: return 76;
+                case 26: return 17;
+                case 34: return 76;
+                case 37: return 328;
+                case 47: return 17;
+                case 52: return 76;
+                case 53: return 76;
+                case 54: return 76;
+                case 55: return 438;
                 default: return -1;
             }
         }

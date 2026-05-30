@@ -65,6 +65,7 @@ New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ReportPath) | Out
   /out:$Out `
   /reference:System.dll `
   /reference:System.Core.dll `
+  /reference:Microsoft.VisualBasic.dll `
   /reference:System.Web.Extensions.dll `
   $Source
 
