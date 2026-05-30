@@ -1015,6 +1015,7 @@ namespace PodexTools
                 FillSimplifiedChineseFallbacks(itemTextMap);
                 Dictionary<int, List<int>> itemGenerations = BuildItemGenerationMap(itemGameIndices, sourceItems);
                 FillInferredItemChineseDescriptions(sourceItems, itemGenerations, itemTextMap);
+                FillMachineItemChineseDescriptions(sourceItems, machines, moveNameMap, itemTextMap);
                 Dictionary<int, Dictionary<string, object>> typeRefs = BuildTypeRefs(raw);
                 Dictionary<int, Dictionary<string, object>> abilityRefs = BuildNamedRefs(abilityNameMap);
                 Dictionary<int, Dictionary<string, object>> moveRefs = BuildNamedRefs(moveNameMap);
@@ -1233,8 +1234,150 @@ namespace PodexTools
                 ability["trigger"] = null;
                 ability["target"] = null;
                 ability["effectOn"] = null;
+                ApplyAbilityDetailRefs(ability, id);
                 ability["descriptions"] = TextOrIdentifier(effects, id, CsvValue(row, "identifier"));
                 return ability;
+            }
+
+            private static void ApplyAbilityDetailRefs(Dictionary<string, object> ability, int id)
+            {
+                switch (id)
+                {
+                    case 234: SetAbilityDetailRefs(ability, 1, 1, 1); break;
+                    case 235: SetAbilityDetailRefs(ability, 1, 1, 1); break;
+                    case 236: SetAbilityDetailRefs(ability, 2, 1, 5); break;
+                    case 237: SetAbilityDetailRefs(ability, 5, 1, 2); break;
+                    case 238: SetAbilityDetailRefs(ability, 3, 5, 1); break;
+                    case 239: SetAbilityDetailRefs(ability, 2, 1, 3); break;
+                    case 240: SetAbilityDetailRefs(ability, 3, 4, 1); break;
+                    case 241: SetAbilityDetailRefs(ability, 3, 4, 7); break;
+                    case 242: SetAbilityDetailRefs(ability, 2, 1, 3); break;
+                    case 243: SetAbilityDetailRefs(ability, 3, 1, 1); break;
+                    case 244: SetAbilityDetailRefs(ability, 5, 1, 3); break;
+                    case 245: SetAbilityDetailRefs(ability, 3, 5, 6); break;
+                    case 246: SetAbilityDetailRefs(ability, 3, 1, 3); break;
+                    case 247: SetAbilityDetailRefs(ability, 5, 1, 2); break;
+                    case 248: SetAbilityDetailRefs(ability, 3, 1, 7); break;
+                    case 249: SetAbilityDetailRefs(ability, 5, 2, 3); break;
+                    case 250: SetAbilityDetailRefs(ability, 5, 1, 5); break;
+                    case 251: SetAbilityDetailRefs(ability, 1, 5, 3); break;
+                    case 252: SetAbilityDetailRefs(ability, 5, 3, 3); break;
+                    case 253: SetAbilityDetailRefs(ability, 3, 6, 7); break;
+                    case 254: SetAbilityDetailRefs(ability, 3, 6, 4); break;
+                    case 255: SetAbilityDetailRefs(ability, 5, 1, 1); break;
+                    case 256: SetAbilityDetailRefs(ability, 5, 5, 4); break;
+                    case 257: SetAbilityDetailRefs(ability, 5, 3, 7); break;
+                    case 258: SetAbilityDetailRefs(ability, 7, 1, 7); break;
+                    case 259: SetAbilityDetailRefs(ability, 2, 1, 7); break;
+                    case 260: SetAbilityDetailRefs(ability, 2, 4, 3); break;
+                    case 261: SetAbilityDetailRefs(ability, 1, 2, 1); break;
+                    case 262: SetAbilityDetailRefs(ability, 2, 1, 3); break;
+                    case 263: SetAbilityDetailRefs(ability, 2, 1, 3); break;
+                    case 264: SetAbilityDetailRefs(ability, 2, 1, 1); break;
+                    case 265: SetAbilityDetailRefs(ability, 2, 1, 1); break;
+                    case 266: SetAbilityDetailRefs(ability, 5, 6, 4); break;
+                    case 267: SetAbilityDetailRefs(ability, 5, 6, 4); break;
+                    case 268: SetAbilityDetailRefs(ability, 3, 4, 4); break;
+                    case 269: SetAbilityDetailRefs(ability, 3, 5, 7); break;
+                    case 270: SetAbilityDetailRefs(ability, 3, 1, 1); break;
+                    case 271: SetAbilityDetailRefs(ability, 8, 1, 1); break;
+                    case 272: SetAbilityDetailRefs(ability, 5, 1, 7); break;
+                    case 273: SetAbilityDetailRefs(ability, 3, 1, 1); break;
+                    case 274: SetAbilityDetailRefs(ability, 3, 1, 1); break;
+                    case 275: SetAbilityDetailRefs(ability, 3, 1, 1); break;
+                    case 276: SetAbilityDetailRefs(ability, 2, 1, 3); break;
+                    case 277: SetAbilityDetailRefs(ability, 3, 1, 7); break;
+                    case 278: SetAbilityDetailRefs(ability, 4, 1, 7); break;
+                    case 279: SetAbilityDetailRefs(ability, 1, 2, 1); break;
+                    case 280: SetAbilityDetailRefs(ability, 3, 1, 7); break;
+                    case 281: SetAbilityDetailRefs(ability, 10, 1, 1); break;
+                    case 282: SetAbilityDetailRefs(ability, 5, 1, 1); break;
+                    case 283: SetAbilityDetailRefs(ability, 3, 1, 3); break;
+                    case 284: SetAbilityDetailRefs(ability, 5, 4, 1); break;
+                    case 285: SetAbilityDetailRefs(ability, 5, 4, 1); break;
+                    case 286: SetAbilityDetailRefs(ability, 5, 4, 1); break;
+                    case 287: SetAbilityDetailRefs(ability, 5, 4, 1); break;
+                    case 288: SetAbilityDetailRefs(ability, 1, 5, 6); break;
+                    case 289: SetAbilityDetailRefs(ability, 1, 5, 7); break;
+                    case 290: SetAbilityDetailRefs(ability, 3, 1, 1); break;
+                    case 291: SetAbilityDetailRefs(ability, 7, 1, 2); break;
+                    case 292: SetAbilityDetailRefs(ability, 2, 1, 3); break;
+                    case 293: SetAbilityDetailRefs(ability, 1, 1, 1); break;
+                    case 294: SetAbilityDetailRefs(ability, 1, 1, 1); break;
+                    case 295: SetAbilityDetailRefs(ability, 3, 4, 7); break;
+                    case 296: SetAbilityDetailRefs(ability, 5, 3, 3); break;
+                    case 297: SetAbilityDetailRefs(ability, 3, 1, 3); break;
+                    case 298: SetAbilityDetailRefs(ability, 2, 4, 4); break;
+                    case 299: SetAbilityDetailRefs(ability, 2, 1, 3); break;
+                    case 300: SetAbilityDetailRefs(ability, 1, 4, 1); break;
+                    case 301: SetAbilityDetailRefs(ability, 1, 2, 7); break;
+                    case 302: SetAbilityDetailRefs(ability, 2, 4, 7); break;
+                    case 303: SetAbilityDetailRefs(ability, 1, 1, 1); break;
+                    case 304: SetAbilityDetailRefs(ability, 1, 1, 7); break;
+                    case 305: SetAbilityDetailRefs(ability, 9, 1, 3); break;
+                    case 306: SetAbilityDetailRefs(ability, 1, 5, 7); break;
+                    case 307: SetAbilityDetailRefs(ability, 2, 4, 7); break;
+                    case 308: SetAbilityDetailRefs(ability, 2, 4, 3); break;
+                    case 309: SetAbilityDetailRefs(ability, 2, 1, 5); break;
+                    case 310: SetAbilityDetailRefs(ability, 10, 1, 6); break;
+                    case 311: SetAbilityDetailRefs(ability, 3, 4, 7); break;
+                }
+            }
+
+            private static void SetAbilityDetailRefs(Dictionary<string, object> ability, int triggerId, int targetId, int effectOnId)
+            {
+                ability["trigger"] = AbilityTriggerRef(triggerId);
+                ability["target"] = AbilityTargetRef(targetId);
+                ability["effectOn"] = AbilityEffectOnRef(effectOnId);
+            }
+
+            private static Dictionary<string, object> AbilityTriggerRef(int id)
+            {
+                switch (id)
+                {
+                    case 1: return MakeNamedRef(1, "出场时", "出場時", "On entry");
+                    case 2: return MakeNamedRef(2, "攻击时", "攻擊時", "When attacking");
+                    case 3: return MakeNamedRef(3, "防御时", "防禦時", "When hit");
+                    case 4: return MakeNamedRef(4, "替换时", "替換時", "On switch");
+                    case 5: return MakeNamedRef(5, "战斗中", "戰鬥中", "In battle");
+                    case 6: return MakeNamedRef(6, "濒死时", "瀕死時", "On fainting");
+                    case 7: return MakeNamedRef(7, "回合结束", "回合結束", "End of turn");
+                    case 8: return MakeNamedRef(8, "危机时", "危機時", "In a pinch");
+                    case 9: return MakeNamedRef(9, "满HP时", "滿HP時", "At full HP");
+                    case 10: return MakeNamedRef(10, "天气下", "天氣下", "In weather");
+                    case 11: return MakeNamedRef(11, "异常时", "異常時", "With status");
+                    case 12: return MakeNamedRef(12, "野外时", "野外時", "In the field");
+                    default: return null;
+                }
+            }
+
+            private static Dictionary<string, object> AbilityTargetRef(int id)
+            {
+                switch (id)
+                {
+                    case 1: return MakeNamedRef(1, "自身", "自身", "Self");
+                    case 2: return MakeNamedRef(2, "队友", "隊友", "Ally");
+                    case 3: return MakeNamedRef(3, "自身+队友", "自身+隊友", "Self and ally");
+                    case 4: return MakeNamedRef(4, "敌方", "敵方", "Opponent");
+                    case 5: return MakeNamedRef(5, "全场", "全場", "Field");
+                    case 6: return MakeNamedRef(6, "其他", "其他", "Other");
+                    default: return null;
+                }
+            }
+
+            private static Dictionary<string, object> AbilityEffectOnRef(int id)
+            {
+                switch (id)
+                {
+                    case 1: return MakeNamedRef(1, "能力", "能力", "Stats");
+                    case 2: return MakeNamedRef(2, "道具", "道具", "Items");
+                    case 3: return MakeNamedRef(3, "技能", "技能", "Moves");
+                    case 4: return MakeNamedRef(4, "特性", "特性", "Abilities");
+                    case 5: return MakeNamedRef(5, "属性", "屬性", "Types");
+                    case 6: return MakeNamedRef(6, "天气", "天氣", "Weather");
+                    case 7: return MakeNamedRef(7, "其他", "其他", "Other");
+                    default: return null;
+                }
             }
 
             private static Dictionary<string, object> BuildItem(
@@ -1641,6 +1784,90 @@ namespace PodexTools
                         int generation = generations.Where(delegate(int value) { return value > 0; }).DefaultIfEmpty(0).Min();
                         return generation > 0 ? "第" + generation.ToString(CultureInfo.InvariantCulture) + "世代道具。" : "道具。";
                 }
+            }
+
+            private static void FillMachineItemChineseDescriptions(
+                CsvTable items,
+                CsvTable machines,
+                Dictionary<int, Dictionary<string, string>> moveNames,
+                Dictionary<int, Dictionary<string, string>> descriptions)
+            {
+                Dictionary<int, string> itemIdentifiers = BuildItemIdentifierMap(items);
+                var moveIdsByItem = new Dictionary<int, SortedSet<int>>();
+                foreach (Dictionary<string, string> row in machines.Rows)
+                {
+                    int itemId = CsvInt(row, "item_id");
+                    int moveId = CsvInt(row, "move_id");
+                    if (itemId <= 0 || moveId <= 0) continue;
+
+                    string identifier;
+                    if (!itemIdentifiers.TryGetValue(itemId, out identifier) || !IsMachineIdentifier(identifier)) continue;
+
+                    SortedSet<int> moveIds;
+                    if (!moveIdsByItem.TryGetValue(itemId, out moveIds))
+                    {
+                        moveIds = new SortedSet<int>();
+                        moveIdsByItem.Add(itemId, moveIds);
+                    }
+                    moveIds.Add(moveId);
+                }
+
+                foreach (KeyValuePair<int, SortedSet<int>> pair in moveIdsByItem)
+                {
+                    string current = TextValue(descriptions, pair.Key, "zhCN");
+                    if (!ShouldReplaceMachineDescription(current)) continue;
+
+                    string identifier = itemIdentifiers[pair.Key];
+                    var moveLabels = pair.Value
+                        .Select(delegate(int moveId) { return TextValue(moveNames, moveId, "zhCN", "en"); })
+                        .Where(delegate(string label) { return !string.IsNullOrWhiteSpace(label); })
+                        .Distinct()
+                        .ToList();
+                    if (moveLabels.Count == 0) continue;
+
+                    string moveText = string.Join("／", moveLabels.ToArray());
+                    bool isRecord = identifier.StartsWith("tr", StringComparison.OrdinalIgnoreCase);
+                    bool isHiddenMachine = identifier.StartsWith("hm", StringComparison.OrdinalIgnoreCase);
+                    string machineName = isRecord ? "招式记录" : (isHiddenMachine ? "秘传学习器" : "招式学习器");
+                    string suffix = isRecord ? "用过之后就会消失" : "可以使用多次";
+                    string text = "收录着招式「" + moveText + "」的" + machineName + "。使用后能让宝可梦学会这个招式，" + suffix + "。";
+
+                    Dictionary<string, string> values = EnsureTextMap(descriptions, pair.Key);
+                    values["zhCN"] = text;
+                    values["zhTW"] = text;
+                    values["en"] = text;
+                }
+            }
+
+            private static bool IsMachineIdentifier(string identifier)
+            {
+                if (string.IsNullOrWhiteSpace(identifier)) return false;
+                return identifier.StartsWith("tm", StringComparison.OrdinalIgnoreCase)
+                    || identifier.StartsWith("tr", StringComparison.OrdinalIgnoreCase)
+                    || identifier.StartsWith("hm", StringComparison.OrdinalIgnoreCase);
+            }
+
+            private static bool ShouldReplaceMachineDescription(string description)
+            {
+                if (string.IsNullOrWhiteSpace(description)) return true;
+                return description.IndexOf("对应招式", StringComparison.OrdinalIgnoreCase) >= 0
+                    || description.IndexOf("compatible move", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+
+            private static string TextValue(Dictionary<int, Dictionary<string, string>> map, int id, string first)
+            {
+                return TextValue(map, id, first, null);
+            }
+
+            private static string TextValue(Dictionary<int, Dictionary<string, string>> map, int id, string first, string fallback)
+            {
+                Dictionary<string, string> values;
+                if (map == null || !map.TryGetValue(id, out values) || values == null) return "";
+
+                string value;
+                if (!string.IsNullOrWhiteSpace(first) && values.TryGetValue(first, out value) && !string.IsNullOrWhiteSpace(value) && value != "---") return value;
+                if (!string.IsNullOrWhiteSpace(fallback) && values.TryGetValue(fallback, out value) && !string.IsNullOrWhiteSpace(value) && value != "---") return value;
+                return "";
             }
 
             private static Dictionary<int, List<int>> BuildItemGenerationMap(CsvTable table, CsvTable items)
