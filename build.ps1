@@ -39,6 +39,76 @@ $AssetsImages = Join-Path $Root "assets\images"
 $BinImages = Join-Path $Bin "images"
 $ReleaseImages = Join-Path $Release "images"
 $JsonOut = Join-Path $DataDir "pokemon.json"
+$LearnsetsOut = Join-Path $DataDir "learnsets.json"
+$ReleaseLearnsets = Join-Path $ReleaseData "learnsets.json"
+
+function Find-JsonArrayEnd([string]$Json, [int]$ArrayStart) {
+  $InString = $false
+  $Escaped = $false
+  $Depth = 0
+  for ($i = $ArrayStart; $i -lt $Json.Length; $i++) {
+    $Ch = $Json[$i]
+    if ($InString) {
+      if ($Escaped) {
+        $Escaped = $false
+      } elseif ($Ch -eq '\') {
+        $Escaped = $true
+      } elseif ($Ch -eq '"') {
+        $InString = $false
+      }
+      continue
+    }
+
+    if ($Ch -eq '"') {
+      $InString = $true
+    } elseif ($Ch -eq '[') {
+      $Depth++
+    } elseif ($Ch -eq ']') {
+      $Depth--
+      if ($Depth -eq 0) { return $i }
+    }
+  }
+  return -1
+}
+
+function Write-SplitJsonData([string]$Source, [string]$CatalogOut, [string]$LearnsetsOutPath) {
+  $Json = [System.IO.File]::ReadAllText((Resolve-Path -LiteralPath $Source).Path, [System.Text.Encoding]::UTF8)
+  $Marker = '"learnsets"'
+  $SearchStart = 0
+  $ArrayStart = -1
+  $ArrayEnd = -1
+  while ($SearchStart -lt $Json.Length) {
+    $PropertyIndex = $Json.IndexOf($Marker, $SearchStart, [StringComparison]::Ordinal)
+    if ($PropertyIndex -lt 0) { break }
+
+    $ColonIndex = $Json.IndexOf(':', $PropertyIndex + $Marker.Length)
+    if ($ColonIndex -lt 0) { break }
+
+    $CandidateStart = $ColonIndex + 1
+    while ($CandidateStart -lt $Json.Length -and [char]::IsWhiteSpace($Json[$CandidateStart])) { $CandidateStart++ }
+    if ($CandidateStart -lt $Json.Length -and $Json[$CandidateStart] -eq '[') {
+      $CandidateEnd = Find-JsonArrayEnd $Json $CandidateStart
+      if ($CandidateEnd -ge $CandidateStart) {
+        $ArrayStart = $CandidateStart
+        $ArrayEnd = $CandidateEnd
+        break
+      }
+    }
+    $SearchStart = $ColonIndex + 1
+  }
+
+  if ($ArrayEnd -lt $ArrayStart) {
+    Copy-Item -LiteralPath $Source -Destination $CatalogOut -Force
+    if (Test-Path -LiteralPath $LearnsetsOutPath) { Remove-Item -LiteralPath $LearnsetsOutPath -Force }
+    return
+  }
+
+  $LearnsetsJson = $Json.Substring($ArrayStart, $ArrayEnd - $ArrayStart + 1)
+  $CatalogJson = $Json.Substring(0, $ArrayStart) + "[]" + $Json.Substring($ArrayEnd + 1)
+  $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($CatalogOut, $CatalogJson, $Utf8NoBom)
+  [System.IO.File]::WriteAllText($LearnsetsOutPath, '{"learnsets":' + $LearnsetsJson + '}', $Utf8NoBom)
+}
 
 if (-not (Test-Path $Csc)) {
   throw "C# compiler not found: $Csc"
@@ -71,9 +141,10 @@ if ($LASTEXITCODE -ne 0) {
   throw "C# compilation failed with exit code $LASTEXITCODE"
 }
 
-Copy-Item -LiteralPath $JsonSource -Destination $JsonOut -Force
+Write-SplitJsonData $JsonSource $JsonOut $LearnsetsOut
 Copy-Item -LiteralPath $Out -Destination $ReleaseOut -Force
-Copy-Item -LiteralPath $JsonSource -Destination (Join-Path $ReleaseData "pokemon.json") -Force
+Copy-Item -LiteralPath $JsonOut -Destination (Join-Path $ReleaseData "pokemon.json") -Force
+Copy-Item -LiteralPath $LearnsetsOut -Destination $ReleaseLearnsets -Force
 if (Test-Path $AssetsImages) {
   Copy-Item -Path (Join-Path $AssetsImages "*") -Destination $BinImages -Recurse -Force
   Copy-Item -Path (Join-Path $AssetsImages "*") -Destination $ReleaseImages -Recurse -Force

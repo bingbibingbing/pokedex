@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
@@ -57,6 +58,7 @@ namespace PodexDesktop
         private readonly Dictionary<int, List<EvolutionEntry>> evolutionsByFamilyId = new Dictionary<int, List<EvolutionEntry>>();
         private readonly Dictionary<int, List<LearnsetEntry>> learnsetsByPokemonId = new Dictionary<int, List<LearnsetEntry>>();
         private readonly Dictionary<int, List<LearnsetEntry>> learnsetsByMoveId = new Dictionary<int, List<LearnsetEntry>>();
+        private readonly object learnsetLock = new object();
         private readonly List<int> moveFilterMoveIds = new List<int>();
         private string moveFilterSearchText = "";
         private int pokemonDetailTabIndex;
@@ -87,6 +89,11 @@ namespace PodexDesktop
         private int itemFilterBagId = -1;
         private bool pokemonSmallImagesLoaded;
         private bool itemSmallImagesLoaded;
+        private bool learnsetsLoaded;
+        private bool learnsetIndexesBuilt;
+        private bool learnsetPreloadStarted;
+        private string deferredLearnsetsJson;
+        private string deferredLearnsetsPath;
         private bool suppressAutoSelectFirstItem;
         private bool switchingModule;
         private string lastNavKey = "";
@@ -113,7 +120,7 @@ namespace PodexDesktop
             abilityToolTip.AutoPopDelay = 8000;
             BuildLayout();
             EnableDoubleBufferingRecursive(this);
-            Load += delegate { LoadData(); };
+            Load += delegate { BeginLoadData(); };
             Shown += delegate { ApplyOriginalLikeSplitter(); };
         }
 
@@ -306,26 +313,174 @@ namespace PodexDesktop
             }, column, 0);
         }
 
-        private void LoadData()
+        private void BeginLoadData()
+        {
+            UseWaitCursor = true;
+            navPanel.Enabled = false;
+            searchBox.Enabled = false;
+            typeFilter.Enabled = false;
+            generationFilter.Enabled = false;
+            statusLabel.Text = "正在加载数据...";
+
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                try
+                {
+                    LoadedData loaded = LoadDataModel();
+                    if (IsDisposed) return;
+                    BeginInvoke((MethodInvoker)delegate { CompleteLoadData(loaded); });
+                }
+                catch (Exception ex)
+                {
+                    if (IsDisposed) return;
+                    BeginInvoke((MethodInvoker)delegate
+                    {
+                        UseWaitCursor = false;
+                        statusLabel.Text = "数据加载失败。";
+                        MessageBox.Show(this, ex.Message, "Podex Desktop", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    });
+                }
+            });
+        }
+
+        private static LoadedData LoadDataModel()
         {
             string dataPath = FindDataPath();
+            string dataDirectory = Path.GetDirectoryName(dataPath);
+            string json = File.ReadAllText(dataPath, Encoding.UTF8);
+            string deferredJson;
+            json = DeferJsonArrayProperty(json, "learnsets", out deferredJson);
+            string deferredPath = Path.Combine(dataDirectory ?? "", "learnsets.json");
             var serializer = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
-            root = serializer.Deserialize<RootData>(File.ReadAllText(dataPath, Encoding.UTF8));
-            if (root.pokemon == null) root.pokemon = new List<PokemonEntry>();
-            if (root.moves == null) root.moves = new List<MoveEntry>();
-            if (root.abilities == null) root.abilities = new List<AbilityEntry>();
-            if (root.items == null) root.items = new List<ItemEntry>();
-            if (root.natures == null) root.natures = new List<NatureEntry>();
-            if (root.types == null) root.types = new List<TypeRef>();
-            if (root.games == null) root.games = new List<NamedRef>();
-            if (root.levels == null) root.levels = new List<NamedRef>();
-            if (root.evolutions == null) root.evolutions = new List<EvolutionEntry>();
-            if (root.learnsets == null) root.learnsets = new List<LearnsetEntry>();
+            RootData loadedRoot = serializer.Deserialize<RootData>(json);
+            NormalizeRootData(loadedRoot);
+
+            bool hasExternalLearnsets = !string.IsNullOrWhiteSpace(deferredPath) && File.Exists(deferredPath);
+            if (hasExternalLearnsets && (string.IsNullOrWhiteSpace(deferredJson) || deferredJson == "[]"))
+            {
+                deferredJson = null;
+                loadedRoot.learnsets = new List<LearnsetEntry>();
+            }
+            else
+            {
+                deferredPath = null;
+            }
+
+            return new LoadedData
+            {
+                Root = loadedRoot,
+                ImageRoot = FindImageRoot(),
+                DeferredLearnsetsJson = deferredJson,
+                DeferredLearnsetsPath = deferredPath,
+                LearnsetsLoaded = !hasExternalLearnsets && (string.IsNullOrWhiteSpace(deferredJson) || deferredJson == "[]")
+            };
+        }
+
+        private void CompleteLoadData(LoadedData loaded)
+        {
+            root = loaded.Root ?? new RootData();
+            NormalizeRootData(root);
+            imageRoot = loaded.ImageRoot ?? "";
+            deferredLearnsetsJson = loaded.DeferredLearnsetsJson;
+            deferredLearnsetsPath = loaded.DeferredLearnsetsPath;
+            learnsetsLoaded = loaded.LearnsetsLoaded;
             IndexData();
-            imageRoot = FindImageRoot();
             InitializeSmallImageLists();
-            EnsurePokemonSmallImages();
-            SelectModule("pokemon");
+            SelectModule("pokemon", true);
+            navPanel.Enabled = true;
+            searchBox.Enabled = true;
+            typeFilter.Enabled = typeFilter.Items.Count > 1;
+            generationFilter.Enabled = generationFilter.Items.Count > 1;
+            UseWaitCursor = false;
+            ApplyOriginalLikeSplitter();
+            StartLearnsetPreload();
+        }
+
+        private static void NormalizeRootData(RootData data)
+        {
+            if (data == null) return;
+            if (data.pokemon == null) data.pokemon = new List<PokemonEntry>();
+            if (data.moves == null) data.moves = new List<MoveEntry>();
+            if (data.abilities == null) data.abilities = new List<AbilityEntry>();
+            if (data.items == null) data.items = new List<ItemEntry>();
+            if (data.natures == null) data.natures = new List<NatureEntry>();
+            if (data.types == null) data.types = new List<TypeRef>();
+            if (data.games == null) data.games = new List<NamedRef>();
+            if (data.levels == null) data.levels = new List<NamedRef>();
+            if (data.evolutions == null) data.evolutions = new List<EvolutionEntry>();
+            if (data.learnsets == null) data.learnsets = new List<LearnsetEntry>();
+        }
+
+        private static string DeferJsonArrayProperty(string json, string propertyName, out string arrayJson)
+        {
+            arrayJson = null;
+            if (string.IsNullOrWhiteSpace(json) || string.IsNullOrWhiteSpace(propertyName)) return json;
+
+            string marker = "\"" + propertyName + "\"";
+            int searchStart = 0;
+            while (searchStart < json.Length)
+            {
+                int propertyIndex = json.IndexOf(marker, searchStart, StringComparison.Ordinal);
+                if (propertyIndex < 0) return json;
+
+                int colonIndex = json.IndexOf(':', propertyIndex + marker.Length);
+                if (colonIndex < 0) return json;
+
+                int arrayStart = colonIndex + 1;
+                while (arrayStart < json.Length && char.IsWhiteSpace(json[arrayStart])) arrayStart++;
+                if (arrayStart < json.Length && json[arrayStart] == '[')
+                {
+                    int arrayEnd = FindJsonArrayEnd(json, arrayStart);
+                    if (arrayEnd < arrayStart) return json;
+
+                    arrayJson = json.Substring(arrayStart, arrayEnd - arrayStart + 1);
+                    return json.Substring(0, arrayStart) + "[]" + json.Substring(arrayEnd + 1);
+                }
+                searchStart = colonIndex + 1;
+            }
+            return json;
+        }
+
+        private static int FindJsonArrayEnd(string json, int arrayStart)
+        {
+            bool inString = false;
+            bool escaped = false;
+            int depth = 0;
+            for (int i = arrayStart; i < json.Length; i++)
+            {
+                char ch = json[i];
+                if (inString)
+                {
+                    if (escaped)
+                    {
+                        escaped = false;
+                    }
+                    else if (ch == '\\')
+                    {
+                        escaped = true;
+                    }
+                    else if (ch == '"')
+                    {
+                        inString = false;
+                    }
+                    continue;
+                }
+
+                if (ch == '"')
+                {
+                    inString = true;
+                }
+                else if (ch == '[')
+                {
+                    depth++;
+                }
+                else if (ch == ']')
+                {
+                    depth--;
+                    if (depth == 0) return i;
+                }
+            }
+            return -1;
         }
 
         private void IndexData()
@@ -339,6 +494,7 @@ namespace PodexDesktop
             evolutionsByFamilyId.Clear();
             learnsetsByPokemonId.Clear();
             learnsetsByMoveId.Clear();
+            learnsetIndexesBuilt = false;
             moveFilterGameId = -1;
 
             foreach (var p in root.pokemon)
@@ -393,13 +549,6 @@ namespace PodexDesktop
                 family.Add(evolution);
             }
 
-            foreach (var entry in root.learnsets)
-            {
-                AddIndexedLearnset(learnsetsByPokemonId, entry.pokemonId, entry);
-                AddIndexedLearnset(learnsetsByMoveId, entry.moveId, entry);
-                if (entry.gameId > moveFilterGameId) moveFilterGameId = entry.gameId;
-            }
-
             foreach (var family in evolutionsByFamilyId.Values)
             {
                 family.Sort(delegate(EvolutionEntry a, EvolutionEntry b)
@@ -408,6 +557,73 @@ namespace PodexDesktop
                     return stage != 0 ? stage : a.pokemonId.CompareTo(b.pokemonId);
                 });
             }
+        }
+
+        private void EnsureLearnsetIndexes()
+        {
+            lock (learnsetLock)
+            {
+                EnsureLearnsetsLoaded();
+                if (learnsetIndexesBuilt) return;
+                learnsetsByPokemonId.Clear();
+                learnsetsByMoveId.Clear();
+                foreach (var entry in root.learnsets)
+                {
+                    AddIndexedLearnset(learnsetsByPokemonId, entry.pokemonId, entry);
+                    AddIndexedLearnset(learnsetsByMoveId, entry.moveId, entry);
+                    if (entry.gameId > moveFilterGameId) moveFilterGameId = entry.gameId;
+                }
+                learnsetIndexesBuilt = true;
+            }
+        }
+
+        private void EnsureLearnsetsLoaded()
+        {
+            lock (learnsetLock)
+            {
+                if (learnsetsLoaded) return;
+                string json;
+                if (!string.IsNullOrWhiteSpace(deferredLearnsetsPath) && File.Exists(deferredLearnsetsPath))
+                {
+                    json = File.ReadAllText(deferredLearnsetsPath, Encoding.UTF8);
+                    if (!json.TrimStart().StartsWith("{", StringComparison.Ordinal))
+                    {
+                        json = "{\"learnsets\":" + json + "}";
+                    }
+                }
+                else
+                {
+                    json = "{\"learnsets\":" + (string.IsNullOrWhiteSpace(deferredLearnsetsJson) ? "[]" : deferredLearnsetsJson) + "}";
+                }
+                var serializer = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
+                RootData learnsetData = serializer.Deserialize<RootData>(json);
+                root.learnsets = learnsetData != null && learnsetData.learnsets != null
+                    ? learnsetData.learnsets
+                    : new List<LearnsetEntry>();
+                deferredLearnsetsJson = null;
+                deferredLearnsetsPath = null;
+                learnsetsLoaded = true;
+            }
+        }
+
+        private void StartLearnsetPreload()
+        {
+            lock (learnsetLock)
+            {
+                if (learnsetPreloadStarted || learnsetIndexesBuilt) return;
+                learnsetPreloadStarted = true;
+            }
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                try
+                {
+                    EnsureLearnsetIndexes();
+                }
+                catch
+                {
+                    // On-demand loading will surface any real error in the UI path.
+                }
+            });
         }
 
         private static void AddIndexedLearnset(Dictionary<int, List<LearnsetEntry>> index, int key, LearnsetEntry entry)
@@ -503,7 +719,12 @@ namespace PodexDesktop
 
         private void SelectModule(string key)
         {
-            if (switchingModule || string.IsNullOrWhiteSpace(key) || key == module) return;
+            SelectModule(key, false);
+        }
+
+        private void SelectModule(string key, bool force)
+        {
+            if (switchingModule || string.IsNullOrWhiteSpace(key) || (!force && key == module)) return;
             switchingModule = true;
             HideListTooltip();
             try
@@ -1171,7 +1392,7 @@ namespace PodexDesktop
                     {
                         details.Controls.Add(MakeNatureEffectMatrix());
                     }
-                    EnableDoubleBufferingRecursive(details);
+                    EnableDoubleBuffering(details);
                 }
                 finally
                 {
@@ -1409,6 +1630,7 @@ namespace PodexDesktop
 
         private bool MoveMatchesMachineFilter(MoveEntry move)
         {
+            EnsureLearnsetIndexes();
             List<LearnsetEntry> rows;
             if (!learnsetsByMoveId.TryGetValue(move.id, out rows)) return false;
 
@@ -1453,6 +1675,7 @@ namespace PodexDesktop
         private bool PokemonMatchesMoveFilter(PokemonEntry p)
         {
             if (moveFilterMoveIds.Count == 0) return true;
+            EnsureLearnsetIndexes();
 
             int gameId = CurrentMoveFilterGameId();
             List<LearnsetEntry> rows;
@@ -1478,6 +1701,7 @@ namespace PodexDesktop
         private int CurrentMoveFilterGameId()
         {
             if (moveFilterGameId > 0) return moveFilterGameId;
+            EnsureLearnsetsLoaded();
             int gameId = -1;
             foreach (var row in root.learnsets)
             {
@@ -1585,7 +1809,7 @@ namespace PodexDesktop
                     else if (tag is TypeRef) ShowTypeEffect((TypeRef)tag);
                     else if (tag is NatureEntry) ShowNature((NatureEntry)tag);
                     else ShowPlaceholder(tag == null ? "" : tag.ToString());
-                    EnableDoubleBufferingRecursive(details);
+                    EnableDoubleBuffering(details);
                 }
                 finally
                 {
@@ -2186,6 +2410,7 @@ namespace PodexDesktop
 
         private void PopulateMoveFilterGameFilter(ComboBox combo)
         {
+            EnsureLearnsetsLoaded();
             combo.Items.Clear();
             int currentGameId = CurrentMoveFilterGameId();
             int selectedIndex = -1;
@@ -2647,6 +2872,7 @@ namespace PodexDesktop
             }
 
             List<LearnsetEntry> rows;
+            EnsureLearnsetIndexes();
             if (!learnsetsByPokemonId.TryGetValue(p.legacyId, out rows) || rows.Count == 0)
             {
                 grid.Rows.Add("--", "没有招式学习数据", null, null, "", "", "", null, "");
@@ -2973,6 +3199,7 @@ namespace PodexDesktop
             grid.Columns.Add("PP", 48);
 
             List<LearnsetEntry> rows;
+            EnsureLearnsetIndexes();
             if (!learnsetsByPokemonId.TryGetValue(p.legacyId, out rows) || rows.Count == 0)
             {
                 page.Controls.Add(MakeBodyLabel("没有招式学习数据。"));
@@ -3679,6 +3906,7 @@ namespace PodexDesktop
             if (move == null) return;
 
             List<LearnsetEntry> rows;
+            EnsureLearnsetIndexes();
             if (!learnsetsByMoveId.TryGetValue(move.id, out rows)) return;
 
             int gameId = MovePokemonGridGameId(rows);
@@ -4737,6 +4965,7 @@ namespace PodexDesktop
                 var option = moveCombo.SelectedItem as IdOption;
                 if (option == null) return;
                 List<LearnsetEntry> rows;
+                EnsureLearnsetIndexes();
                 if (!learnsetsByMoveId.TryGetValue(option.Id, out rows))
                 {
                     summary.Text = "没有找到该招式的学习数据。";
@@ -5982,6 +6211,15 @@ namespace PodexDesktop
 
             [DllImport("user32.dll")]
             internal static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+        }
+
+        private sealed class LoadedData
+        {
+            public RootData Root { get; set; }
+            public string ImageRoot { get; set; }
+            public string DeferredLearnsetsJson { get; set; }
+            public string DeferredLearnsetsPath { get; set; }
+            public bool LearnsetsLoaded { get; set; }
         }
     }
 
