@@ -1069,19 +1069,43 @@ namespace PodexDesktop
             }
             else if (list.Items.Count == 0)
             {
-                details.Controls.Clear();
-                if (module == "moves")
-                {
-                    details.Padding = new Padding(6);
-                    details.AutoScroll = false;
-                    details.Controls.Add(MakeMoveDetailPanel(null));
-                }
-                else
-                {
-                    details.Controls.Add(MakeBodyLabel("没有匹配条目。"));
-                }
+                ShowNoMatchDetails();
             }
             statusLabel.Text = BuildStatus();
+        }
+
+        private void ShowNoMatchDetails()
+        {
+            if (module.StartsWith("pokemon"))
+            {
+                return;
+            }
+
+            details.Controls.Clear();
+            if (module == "moves")
+            {
+                details.Padding = new Padding(6);
+                details.AutoScroll = false;
+                details.Controls.Add(MakeMoveDetailPanel(null));
+            }
+            else if (module == "abilities")
+            {
+                details.Padding = new Padding(24);
+                details.AutoScroll = true;
+                details.Controls.Add(MakeAbilityDetailPanel(null));
+            }
+            else if (module == "items")
+            {
+                details.Padding = new Padding(6);
+                details.AutoScroll = false;
+                details.Controls.Add(MakeItemDetailPanel(null));
+            }
+            else
+            {
+                details.Padding = new Padding(24);
+                details.AutoScroll = true;
+                details.Controls.Add(MakeBodyLabel("没有匹配条目。"));
+            }
         }
 
         private void UpdateModuleTitleWithCount()
@@ -3595,7 +3619,7 @@ namespace PodexDesktop
                 BackColor = Color.FromArgb(255, 250, 237),
                 ForeColor = Color.Blue,
                 Font = new Font("Segoe UI", 9f),
-                Text = LocalName(ability.descriptions),
+                Text = ability == null ? "" : LocalName(ability.descriptions),
                 Margin = new Padding(4)
             };
             group.Controls.Add(text);
@@ -3627,9 +3651,9 @@ namespace PodexDesktop
             for (int i = 0; i < 4; i++) panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
 
             AddAbilityFilterSearchRow(panel, 0);
-            AddAbilityFilterOptionRow(panel, 1, "发动时间", AbilityFilterOptions(a => a.trigger), ability.trigger == null ? -1 : ability.trigger.id, abilityFilterTriggerId, delegate(int id) { abilityFilterTriggerId = id; });
-            AddAbilityFilterOptionRow(panel, 2, "效果对象", AbilityFilterOptions(a => a.target), ability.target == null ? -1 : ability.target.id, abilityFilterTargetId, delegate(int id) { abilityFilterTargetId = id; });
-            AddAbilityFilterOptionRow(panel, 3, "特性效果", AbilityFilterOptions(a => a.effectOn), ability.effectOn == null ? -1 : ability.effectOn.id, abilityFilterEffectOnId, delegate(int id) { abilityFilterEffectOnId = id; });
+            AddAbilityFilterOptionRow(panel, 1, "发动时间", AbilityFilterOptions(a => a.trigger), ability == null || ability.trigger == null ? -1 : ability.trigger.id, abilityFilterTriggerId, delegate(int id) { abilityFilterTriggerId = id; });
+            AddAbilityFilterOptionRow(panel, 2, "效果对象", AbilityFilterOptions(a => a.target), ability == null || ability.target == null ? -1 : ability.target.id, abilityFilterTargetId, delegate(int id) { abilityFilterTargetId = id; });
+            AddAbilityFilterOptionRow(panel, 3, "特性效果", AbilityFilterOptions(a => a.effectOn), ability == null || ability.effectOn == null ? -1 : ability.effectOn.id, abilityFilterEffectOnId, delegate(int id) { abilityFilterEffectOnId = id; });
 
             group.Controls.Add(panel);
             return group;
@@ -3799,6 +3823,7 @@ namespace PodexDesktop
         private void FillAbilityPokemonGrid(DataGridView grid, AbilityEntry ability)
         {
             grid.Rows.Clear();
+            if (ability == null) return;
             foreach (var pokemon in root.pokemon.Where(p => PokemonHasAbility(p, ability.id)).OrderBy(p => p.nationalDex).ThenBy(p => p.formId))
             {
                 int rowIndex = grid.Rows.Add(
