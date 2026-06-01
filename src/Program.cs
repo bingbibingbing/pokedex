@@ -100,7 +100,9 @@ namespace PodexDesktop
         private DateTime lastNavClickUtc = DateTime.MinValue;
         private ListViewItem tooltipListItem;
         private int tooltipSubItemIndex = -1;
+        private static readonly Font OriginalUiFont = new Font("SimSun", 9f, FontStyle.Regular);
         private static readonly Font OriginalNameFont = new Font("SimSun", 9f, FontStyle.Regular);
+        private static readonly Font OriginalSmallFont = new Font("SimSun", 8.5f, FontStyle.Regular);
         private static readonly PropertyInfo DoubleBufferedProperty = typeof(Control).GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic);
         private static readonly Dictionary<IntPtr, int> RedrawSuspendDepth = new Dictionary<IntPtr, int>();
 
@@ -109,10 +111,10 @@ namespace PodexDesktop
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
             DoubleBuffered = true;
             Text = "Podex Desktop";
-            MinimumSize = new Size(1180, 740);
-            Size = new Size(1320, 840);
+            MinimumSize = new Size(1080, 660);
+            Size = new Size(1240, 720);
             StartPosition = FormStartPosition.CenterScreen;
-            Font = new Font("Segoe UI", 9.5f);
+            Font = OriginalUiFont;
             BackColor = Color.FromArgb(244, 234, 216);
             abilityToolTip.ShowAlways = true;
             abilityToolTip.InitialDelay = 200;
@@ -129,26 +131,26 @@ namespace PodexDesktop
             var header = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 92,
+                Height = 72,
                 BackColor = Color.FromArgb(31, 111, 105),
-                Padding = new Padding(18, 12, 18, 10)
+                Padding = new Padding(18, 8, 18, 8)
             };
 
             titleLabel.Text = "Podex Desktop";
             titleLabel.AutoSize = true;
             titleLabel.ForeColor = Color.White;
-            titleLabel.Font = new Font("Georgia", 25f, FontStyle.Bold);
-            titleLabel.Location = new Point(18, 10);
+            titleLabel.Font = new Font("SimSun", 20f, FontStyle.Bold);
+            titleLabel.Location = new Point(18, 7);
 
             statusLabel.AutoSize = true;
             statusLabel.ForeColor = Color.FromArgb(231, 220, 195);
-            statusLabel.Location = new Point(23, 56);
+            statusLabel.Location = new Point(23, 43);
             statusLabel.Text = "Loading migrated data...";
             header.Controls.Add(titleLabel);
             header.Controls.Add(statusLabel);
 
             navPanel.Dock = DockStyle.Left;
-            navPanel.Width = 190;
+            navPanel.Width = 178;
             navPanel.BackColor = Color.FromArgb(35, 45, 39);
             navPanel.Padding = new Padding(12);
 
@@ -159,11 +161,11 @@ namespace PodexDesktop
             AddNavButton("属性效果", "type-effect");
             AddNavButton("性格效果", "natures");
 
-            var content = new Panel { Dock = DockStyle.Fill, Padding = new Padding(12) };
+            var content = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8) };
             var filters = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
-                Height = 72,
+                Height = 58,
                 ColumnCount = 3,
                 RowCount = 2
             };
@@ -171,8 +173,8 @@ namespace PodexDesktop
             filters.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55));
             filters.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22));
             filters.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 23));
-            filters.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
-            filters.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            filters.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+            filters.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
 
             AddFilterLabel(filters, "搜索", 0);
             AddFilterLabel(filters, "属性", 1);
@@ -230,7 +232,7 @@ namespace PodexDesktop
 
             details.Dock = DockStyle.Fill;
             details.AutoScroll = true;
-            details.Padding = new Padding(24);
+            details.Padding = new Padding(6);
             details.BackColor = Color.FromArgb(255, 250, 237);
 
             split.Panel1.Controls.Add(list);
@@ -309,7 +311,7 @@ namespace PodexDesktop
                 Text = text,
                 Dock = DockStyle.Fill,
                 ForeColor = Color.FromArgb(106, 91, 69),
-                Font = new Font("Segoe UI", 8.5f, FontStyle.Bold)
+                Font = new Font("SimSun", 9f, FontStyle.Bold)
             }, column, 0);
         }
 
@@ -825,12 +827,11 @@ namespace PodexDesktop
 
             using (var background = new SolidBrush(SystemColors.Control))
             using (var border = new Pen(Color.FromArgb(180, 180, 180)))
-            using (var font = new Font("Microsoft YaHei UI", module == "items" ? 9f : 7.6f, FontStyle.Regular))
             {
                 e.Graphics.FillRectangle(background, e.Bounds);
                 e.Graphics.DrawRectangle(border, e.Bounds.Left, e.Bounds.Top, e.Bounds.Width - 1, e.Bounds.Height - 1);
                 TextFormatFlags flags = TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPrefix;
-                TextRenderer.DrawText(e.Graphics, e.Header.Text, font, e.Bounds, Color.Black, flags);
+                TextRenderer.DrawText(e.Graphics, e.Header.Text, module == "items" ? OriginalUiFont : OriginalSmallFont, e.Bounds, Color.Black, flags);
             }
         }
 
@@ -872,11 +873,11 @@ namespace PodexDesktop
 
             if (e.ColumnIndex == 1)
             {
-                DrawCenteredCellImage(e.Graphics, e.Bounds, LoadCellImage(PokemonImagePath(pokemon.legacyId, false)));
+                DrawCenteredCellImage(e.Graphics, e.Bounds, LoadPokemonSmallCellImage(pokemon.legacyId), 24, 20, true);
             }
             else
             {
-                int padding = e.ColumnIndex == 0 ? 4 : (e.ColumnIndex >= 3 && e.ColumnIndex <= 4 ? 2 : 4);
+                int padding = e.ColumnIndex >= 5 ? 1 : (e.ColumnIndex == 0 ? 2 : (e.ColumnIndex >= 3 && e.ColumnIndex <= 4 ? 2 : 4));
                 Font font = e.ColumnIndex == 2 ? OriginalNameFont : ((e.ColumnIndex >= 3 || e.ColumnIndex == 0) ? e.SubItem.Font : list.Font);
                 DrawListCellText(e.Graphics, e.Bounds, e.SubItem.Text, foreColor, padding, font);
             }
@@ -923,14 +924,14 @@ namespace PodexDesktop
                 Image image = LoadCellImage(ItemDisplayImagePath(item, false));
                 if (image != null)
                 {
-                    Rectangle imageBounds = new Rectangle(e.Bounds.Left + 4, e.Bounds.Top + 2, 20, Math.Max(4, e.Bounds.Height - 4));
-                    DrawCenteredCellImage(e.Graphics, imageBounds, image);
+                    Rectangle imageBounds = new Rectangle(e.Bounds.Left + 3, e.Bounds.Top + 1, 24, Math.Max(4, e.Bounds.Height - 2));
+                    DrawCenteredCellImage(e.Graphics, imageBounds, image, 22, 22, true);
                 }
-                DrawListCellText(e.Graphics, e.Bounds, e.SubItem.Text, foreColor, 28);
+                DrawListCellText(e.Graphics, e.Bounds, e.SubItem.Text, foreColor, 30);
             }
             else if (e.ColumnIndex == 2)
             {
-                DrawCenteredCellImage(e.Graphics, e.Bounds, LoadCellImage(ItemBagImagePath(item.bagId)));
+                DrawCenteredCellImage(e.Graphics, e.Bounds, LoadCellImage(ItemBagImagePath(item.bagId)), 22, 22, true);
             }
             else
             {
@@ -1018,7 +1019,27 @@ namespace PodexDesktop
             int height = Math.Min(image.Height, Math.Max(4, bounds.Height - 4));
             int x = bounds.Left + (bounds.Width - width) / 2;
             int y = bounds.Top + (bounds.Height - height) / 2;
+            var oldInterpolation = graphics.InterpolationMode;
+            graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
             graphics.DrawImage(image, x, y, width, height);
+            graphics.InterpolationMode = oldInterpolation;
+        }
+
+        private static void DrawCenteredCellImage(Graphics graphics, Rectangle bounds, Image image, int maxWidth, int maxHeight, bool allowUpscale)
+        {
+            if (image == null) return;
+            int availableWidth = Math.Max(4, bounds.Width - 2);
+            int availableHeight = Math.Max(4, bounds.Height - 2);
+            double scale = Math.Min((double)Math.Min(maxWidth, availableWidth) / image.Width, (double)Math.Min(maxHeight, availableHeight) / image.Height);
+            if (!allowUpscale) scale = Math.Min(1.0, scale);
+            int width = Math.Max(4, (int)Math.Round(image.Width * scale));
+            int height = Math.Max(4, (int)Math.Round(image.Height * scale));
+            int x = bounds.Left + (bounds.Width - width) / 2;
+            int y = bounds.Top + (bounds.Height - height) / 2;
+            var oldInterpolation = graphics.InterpolationMode;
+            graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
+            graphics.DrawImage(image, x, y, width, height);
+            graphics.InterpolationMode = oldInterpolation;
         }
 
         private void ConfigureListColumns()
@@ -1028,14 +1049,14 @@ namespace PodexDesktop
             if (module.StartsWith("pokemon"))
             {
                 list.OwnerDraw = true;
-                list.SmallImageList = null;
+                list.SmallImageList = MakeRowHeightImageList(24);
                 titleLabel.Text = module == "pokemon-classic" ? "宝可梦 (经典版)" : "宝可梦";
-                list.Columns.Add("#", 50);
-                list.Columns.Add("", 26);
+                list.Columns.Add("#", 40);
+                list.Columns.Add("", 36);
                 list.Columns.Add("名字", 70);
                 list.Columns.Add("属性", 44);
                 list.Columns.Add("属性", 44);
-                list.Columns.Add("HP", 30);
+                list.Columns.Add("HP", 38);
                 list.Columns.Add("攻击", 38);
                 list.Columns.Add("防御", 38);
                 list.Columns.Add("特攻", 40);
@@ -1070,11 +1091,11 @@ namespace PodexDesktop
             else if (module == "items")
             {
                 list.OwnerDraw = true;
-                list.SmallImageList = null;
+                list.SmallImageList = MakeRowHeightImageList(24);
                 titleLabel.Text = "道具";
-                list.Columns.Add("#", 54);
+                list.Columns.Add("#", 42);
                 list.Columns.Add("名字", 152);
-                list.Columns.Add("背", 34);
+                list.Columns.Add("背包", 50);
             }
             else if (module == "type-effect")
             {
@@ -1128,7 +1149,7 @@ namespace PodexDesktop
         private void ResizePokemonListColumns()
         {
             if (list.Columns.Count < 12) return;
-            int[] widths = new[] { 50, 26, 70, 44, 44, 30, 38, 38, 40, 40, 40, 40 };
+            int[] widths = new[] { 40, 36, 70, 44, 44, 38, 38, 38, 40, 40, 40, 40 };
             int available = ListColumnAvailableWidth();
             int extra = available - widths.Sum();
             if (extra > 0) AddWidth(widths, 2, 100, ref extra);
@@ -1156,7 +1177,7 @@ namespace PodexDesktop
         private void ResizeItemListColumns()
         {
             if (list.Columns.Count < 3) return;
-            int[] widths = new[] { 54, 152, 34 };
+            int[] widths = new[] { 42, 152, 50 };
             int available = ListColumnAvailableWidth();
             int extra = available - widths.Sum();
             if (extra > 0) widths[1] += extra;
@@ -1173,6 +1194,17 @@ namespace PodexDesktop
             int add = Math.Min(maxExtra, extra);
             widths[index] += add;
             extra -= add;
+        }
+
+        private static ImageList MakeRowHeightImageList(int height)
+        {
+            var imageList = new ImageList
+            {
+                ColorDepth = ColorDepth.Depth32Bit,
+                ImageSize = new Size(1, height)
+            };
+            imageList.Images.Add(new Bitmap(1, height));
+            return imageList;
         }
 
         private void ApplyListColumnWidths(int[] widths)
@@ -1757,7 +1789,7 @@ namespace PodexDesktop
         private void AddItemRow(ItemEntry i)
         {
             var item = new ListViewItem(i.id.ToString());
-            item.ImageKey = i.id.ToString();
+            item.ImageIndex = 0;
             item.SubItems.Add(LocalName(i.names));
             item.SubItems.Add(ValueOrDash(ItemBagGroupId(ObjectInt(i.bagId, -1))));
             item.Tag = i;
@@ -1800,7 +1832,7 @@ namespace PodexDesktop
                 try
                 {
                     details.Controls.Clear();
-                    details.Padding = (tag is MoveEntry || tag is ItemEntry) ? new Padding(6) : new Padding(24);
+                    details.Padding = new Padding(6);
                     details.AutoScroll = !(tag is PokemonEntry || tag is MoveEntry || tag is ItemEntry);
                     if (tag is PokemonEntry) ShowPokemon((PokemonEntry)tag);
                     else if (tag is MoveEntry) ShowMove((MoveEntry)tag);
@@ -1905,9 +1937,9 @@ namespace PodexDesktop
                 BackColor = Color.FromArgb(255, 250, 237)
             };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 100));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 122));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 112));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 94));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             page.Controls.Add(layout);
@@ -1969,7 +2001,7 @@ namespace PodexDesktop
                 ScrollBars = ScrollBars.Vertical,
                 BackColor = Color.FromArgb(255, 250, 237),
                 ForeColor = Color.FromArgb(23, 32, 27),
-                Font = new Font("Segoe UI", 10f),
+                Font = OriginalUiFont,
                 Text = string.IsNullOrWhiteSpace(LocalName(p.descriptions)) ? "暂无描述。" : LocalName(p.descriptions),
                 Margin = new Padding(4, 8, 4, 4)
             };
@@ -2008,7 +2040,7 @@ namespace PodexDesktop
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.TopLeft,
                 ForeColor = Color.FromArgb(23, 32, 27),
-                Font = new Font("Segoe UI", 9f),
+                Font = OriginalUiFont,
                 Margin = new Padding(0, 4, 0, 0)
             }, 0, 0);
             defenseLine.Controls.Add(MakeDefenseMatrix(p), 1, 0);
@@ -2457,7 +2489,7 @@ namespace PodexDesktop
                 ShowCellToolTips = true,
                 Margin = new Padding(0)
             };
-            grid.ColumnHeadersDefaultCellStyle.Font = new Font("Microsoft YaHei UI", 8.5f, FontStyle.Regular);
+            grid.ColumnHeadersDefaultCellStyle.Font = OriginalSmallFont;
             grid.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
             grid.Columns.Add(MakeTextColumn("id", "#", 48));
             grid.Columns.Add(MakeTextColumn("move", "名字", 112));
@@ -2559,17 +2591,28 @@ namespace PodexDesktop
         private static void ResizeMoveFilterGridColumns(DataGridView grid)
         {
             if (grid.Columns.Count < 9) return;
-            int fixedWidth =
-                grid.Columns["id"].Width +
-                grid.Columns["type"].Width +
-                grid.Columns["category"].Width +
-                grid.Columns["power"].Width +
-                grid.Columns["accuracy"].Width +
-                grid.Columns["pp"].Width +
-                grid.Columns["range"].Width +
-                grid.Columns["priority"].Width +
-                24;
-            grid.Columns["move"].Width = Math.Max(80, grid.ClientSize.Width - fixedWidth);
+            int available = Math.Max(0, grid.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 3);
+            if (available <= 0) return;
+
+            int idWidth = 42;
+            int typeWidth = 40;
+            int categoryWidth = 40;
+            int powerWidth = 32;
+            int accuracyWidth = 32;
+            int ppWidth = 30;
+            int rangeWidth = 42;
+            int priorityWidth = 30;
+            int moveWidth = Math.Max(72, available - idWidth - typeWidth - categoryWidth - powerWidth - accuracyWidth - ppWidth - rangeWidth - priorityWidth);
+
+            grid.Columns["id"].Width = idWidth;
+            grid.Columns["move"].Width = moveWidth;
+            grid.Columns["type"].Width = typeWidth;
+            grid.Columns["category"].Width = categoryWidth;
+            grid.Columns["power"].Width = powerWidth;
+            grid.Columns["accuracy"].Width = accuracyWidth;
+            grid.Columns["pp"].Width = ppWidth;
+            grid.Columns["range"].Width = rangeWidth;
+            grid.Columns["priority"].Width = priorityWidth;
         }
 
         private static List<MoveEntry> SortMoveEntries(IEnumerable<MoveEntry> moves, int sortColumn, bool sortAscending)
@@ -2939,7 +2982,8 @@ namespace PodexDesktop
                 ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
                 ColumnHeadersHeight = 24,
                 RowTemplate = { Height = 22 },
-                ShowCellToolTips = true
+                ShowCellToolTips = true,
+                ScrollBars = ScrollBars.Vertical
             };
             grid.DefaultCellStyle.Font = OriginalNameFont;
             grid.ColumnHeadersDefaultCellStyle.Font = OriginalNameFont;
@@ -2971,17 +3015,29 @@ namespace PodexDesktop
         private static void ResizeLegacyMoveGridColumns(DataGridView grid)
         {
             if (grid.Columns.Count < 9) return;
-            int fixedWidth =
-                grid.Columns["level"].Width +
-                grid.Columns["type"].Width +
-                grid.Columns["category"].Width +
-                grid.Columns["power"].Width +
-                grid.Columns["accuracy"].Width +
-                grid.Columns["pp"].Width +
-                grid.Columns["range"].Width +
-                grid.Columns["priority"].Width +
-                28;
-            grid.Columns["move"].Width = Math.Max(96, grid.ClientSize.Width - fixedWidth);
+            int available = Math.Max(0, grid.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 3);
+            if (available <= 0) return;
+
+            int levelWidth = 58;
+            int typeWidth = 40;
+            int categoryWidth = 40;
+            int powerWidth = 34;
+            int accuracyWidth = 34;
+            int ppWidth = 32;
+            int rangeWidth = 42;
+            int priorityWidth = 30;
+            int fixedWidth = levelWidth + typeWidth + categoryWidth + powerWidth + accuracyWidth + ppWidth + rangeWidth + priorityWidth;
+            int moveWidth = Math.Max(78, available - fixedWidth);
+
+            grid.Columns["level"].Width = levelWidth;
+            grid.Columns["move"].Width = moveWidth;
+            grid.Columns["type"].Width = typeWidth;
+            grid.Columns["category"].Width = categoryWidth;
+            grid.Columns["power"].Width = powerWidth;
+            grid.Columns["accuracy"].Width = accuracyWidth;
+            grid.Columns["pp"].Width = ppWidth;
+            grid.Columns["range"].Width = rangeWidth;
+            grid.Columns["priority"].Width = priorityWidth;
         }
 
         private int LegacyMoveGridHeight()
@@ -3256,7 +3312,7 @@ namespace PodexDesktop
                 BackColor = Color.FromArgb(255, 250, 237),
                 Margin = new Padding(0)
             };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 272));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 250));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
@@ -3269,7 +3325,7 @@ namespace PodexDesktop
                 BackColor = Color.FromArgb(255, 250, 237)
             };
             middle.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            middle.RowStyles.Add(new RowStyle(SizeType.Absolute, 84));
+            middle.RowStyles.Add(new RowStyle(SizeType.Absolute, 76));
             middle.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             middle.Controls.Add(MakeMoveDescriptionBox(move), 0, 0);
             middle.Controls.Add(MakeMoveFilterBox(move), 0, 1);
@@ -3301,7 +3357,7 @@ namespace PodexDesktop
                 ScrollBars = ScrollBars.Vertical,
                 BackColor = Color.FromArgb(255, 250, 237),
                 ForeColor = Color.Blue,
-                Font = new Font("Segoe UI", 9f),
+                Font = OriginalUiFont,
                 Text = move == null ? "" : LocalName(move.descriptions),
                 Margin = new Padding(4)
             };
@@ -3849,21 +3905,21 @@ namespace PodexDesktop
                 ShowCellToolTips = true,
                 ScrollBars = ScrollBars.Vertical
             };
-            grid.DefaultCellStyle.Font = new Font("Microsoft YaHei UI", 8.5f, FontStyle.Regular);
-            grid.ColumnHeadersDefaultCellStyle.Font = new Font("Microsoft YaHei UI", 8.3f, FontStyle.Regular);
+            grid.DefaultCellStyle.Font = OriginalSmallFont;
+            grid.ColumnHeadersDefaultCellStyle.Font = OriginalSmallFont;
             grid.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
-            grid.Columns.Add(MakeTextColumn("number", "#", 54));
-            grid.Columns.Add(MakeImageColumn("icon", "", 20));
-            grid.Columns.Add(MakeTextColumn("name", "宝可梦", 76));
-            grid.Columns.Add(MakeTextColumn("type1", "属性", 52));
-            grid.Columns.Add(MakeTextColumn("type2", "属性", 52));
-            grid.Columns.Add(MakeTextColumn("level", "Lv.", 38));
-            grid.Columns["number"].MinimumWidth = 54;
-            grid.Columns["icon"].MinimumWidth = 20;
-            grid.Columns["name"].MinimumWidth = 160;
-            grid.Columns["type1"].MinimumWidth = 54;
-            grid.Columns["type2"].MinimumWidth = 54;
-            grid.Columns["level"].MinimumWidth = 64;
+            grid.Columns.Add(MakeTextColumn("number", "#", 46));
+            grid.Columns.Add(MakeImageColumn("icon", "", 22));
+            grid.Columns.Add(MakeTextColumn("name", "宝可梦", 96));
+            grid.Columns.Add(MakeTextColumn("type1", "属性", 42));
+            grid.Columns.Add(MakeTextColumn("type2", "属性", 42));
+            grid.Columns.Add(MakeTextColumn("level", "Lv.", 42));
+            grid.Columns["number"].MinimumWidth = 36;
+            grid.Columns["icon"].MinimumWidth = 18;
+            grid.Columns["name"].MinimumWidth = 72;
+            grid.Columns["type1"].MinimumWidth = 34;
+            grid.Columns["type2"].MinimumWidth = 34;
+            grid.Columns["level"].MinimumWidth = 36;
             foreach (DataGridViewColumn column in grid.Columns)
             {
                 column.SortMode = DataGridViewColumnSortMode.NotSortable;
@@ -3882,15 +3938,14 @@ namespace PodexDesktop
         private static void ResizeMovePokemonGridColumns(DataGridView grid)
         {
             if (grid.Columns.Count < 6) return;
-            int available = Math.Max(0, grid.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 4);
+            int available = Math.Max(0, grid.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 3);
             if (available <= 0) return;
 
-            int numberWidth = 54;
-            int iconWidth = 24;
-            int remaining = Math.Max(0, available - numberWidth - iconWidth);
-            int typeWidth = Math.Max(58, (int)(remaining * 0.12));
-            int levelWidth = Math.Max(76, (int)(remaining * 0.18));
-            int nameWidth = Math.Max(160, available - numberWidth - iconWidth - typeWidth - typeWidth - levelWidth);
+            int numberWidth = available < 360 ? 42 : 48;
+            int iconWidth = 22;
+            int typeWidth = available < 360 ? 38 : 42;
+            int levelWidth = available < 360 ? 40 : 46;
+            int nameWidth = Math.Max(72, available - numberWidth - iconWidth - typeWidth - typeWidth - levelWidth);
 
             grid.Columns["number"].Width = numberWidth;
             grid.Columns["icon"].Width = iconWidth;
@@ -5059,7 +5114,8 @@ namespace PodexDesktop
                 HideSelection = false,
                 Width = width,
                 Height = height,
-                BackColor = Color.FromArgb(244, 234, 216)
+                BackColor = Color.FromArgb(244, 234, 216),
+                Font = OriginalUiFont
             };
         }
 
