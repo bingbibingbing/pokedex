@@ -37,6 +37,7 @@ namespace PodexDesktop
         private readonly ImageList pokemonSmallImages = new ImageList();
         private readonly ImageList itemSmallImages = new ImageList();
         private readonly ToolTip abilityToolTip = new ToolTip();
+        private readonly System.Windows.Forms.Timer filterApplyTimer = new System.Windows.Forms.Timer();
         private SplitContainer mainSplit;
         private TableLayoutPanel topFilters;
 
@@ -120,6 +121,12 @@ namespace PodexDesktop
             abilityToolTip.InitialDelay = 200;
             abilityToolTip.ReshowDelay = 100;
             abilityToolTip.AutoPopDelay = 8000;
+            filterApplyTimer.Interval = 140;
+            filterApplyTimer.Tick += delegate
+            {
+                filterApplyTimer.Stop();
+                if (!rebuildingFilters && !switchingModule) ApplyFilters();
+            };
             BuildLayout();
             EnableDoubleBufferingRecursive(this);
             Load += delegate { BeginLoadData(); };
@@ -182,7 +189,7 @@ namespace PodexDesktop
 
             searchBox.Dock = DockStyle.Fill;
             searchBox.Margin = new Padding(0, 0, 10, 0);
-            searchBox.TextChanged += delegate { if (!rebuildingFilters) ApplyFilters(); };
+            searchBox.TextChanged += delegate { if (!rebuildingFilters) ScheduleApplyFilters(); };
 
             typeFilter.Dock = DockStyle.Fill;
             typeFilter.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -1207,6 +1214,52 @@ namespace PodexDesktop
             return imageList;
         }
 
+        private void ScheduleApplyFilters()
+        {
+            if (rebuildingFilters || switchingModule) return;
+            filterApplyTimer.Stop();
+            filterApplyTimer.Start();
+        }
+
+        private Control GetDeepActiveControl()
+        {
+            Control current = ActiveControl;
+            while (current is ContainerControl)
+            {
+                var container = current as ContainerControl;
+                if (container == null || container.ActiveControl == null) break;
+                current = container.ActiveControl;
+            }
+            return current;
+        }
+
+        private static Control FindControlByName(Control root, string name)
+        {
+            if (root == null || string.IsNullOrWhiteSpace(name)) return null;
+            if (string.Equals(root.Name, name, StringComparison.Ordinal)) return root;
+            foreach (Control child in root.Controls)
+            {
+                Control match = FindControlByName(child, name);
+                if (match != null) return match;
+            }
+            return null;
+        }
+
+        private static bool TagsMatch(object left, object right)
+        {
+            return object.ReferenceEquals(left, right) || (left != null && left.Equals(right));
+        }
+
+        private ListViewItem FindListItemByTag(object tag)
+        {
+            if (tag == null) return null;
+            foreach (ListViewItem item in list.Items)
+            {
+                if (TagsMatch(item.Tag, tag)) return item;
+            }
+            return null;
+        }
+
         private void ApplyListColumnWidths(int[] widths)
         {
             int count = Math.Min(widths.Length, list.Columns.Count);
@@ -1252,9 +1305,21 @@ namespace PodexDesktop
 
         private void ApplyFilters()
         {
+            filterApplyTimer.Stop();
             string query = (searchBox.Text ?? "").Trim().ToLowerInvariant();
             string typeId = SelectedValue(typeFilter);
             string generation = SelectedValue(generationFilter);
+            object previousSelectionTag = list.SelectedItems.Count > 0 ? list.SelectedItems[0].Tag : null;
+            Control previousActiveControl = GetDeepActiveControl();
+            string previousActiveControlName = previousActiveControl == null ? "" : previousActiveControl.Name;
+            int previousSelectionStart = -1;
+            int previousSelectionLength = 0;
+            var previousTextBox = previousActiveControl as TextBoxBase;
+            if (previousTextBox != null)
+            {
+                previousSelectionStart = previousTextBox.SelectionStart;
+                previousSelectionLength = previousTextBox.SelectionLength;
+            }
 
             SanitizeDetailFiltersForCurrentGeneration();
 
@@ -1345,13 +1410,44 @@ namespace PodexDesktop
             UpdateModuleTitleWithCount();
             if (list.Items.Count > 0 && !suppressAutoSelectFirstItem)
             {
-                list.Items[0].Selected = true;
-                list.Select();
+                ListViewItem selectedItem = FindListItemByTag(previousSelectionTag) ?? list.Items[0];
+                bool selectionChanged = !TagsMatch(selectedItem.Tag, previousSelectionTag);
+                bool shouldPreserveEditorFocus = previousTextBox != null && !string.IsNullOrWhiteSpace(previousActiveControlName);
+                suppressListSelectionChanged = true;
+                try
+                {
+                    selectedItem.Selected = true;
+                    if (!shouldPreserveEditorFocus) selectedItem.Focused = true;
+                }
+                finally
+                {
+                    suppressListSelectionChanged = false;
+                }
+                if (selectionChanged || details.Controls.Count == 0)
+                {
+                    ShowDetails(selectedItem.Tag);
+                }
             }
             else if (list.Items.Count == 0)
             {
                 ShowNoMatchDetails();
             }
+
+            if (!string.IsNullOrWhiteSpace(previousActiveControlName))
+            {
+                Control focusTarget = FindControlByName(this, previousActiveControlName);
+                var focusTextBox = focusTarget as TextBoxBase;
+                if (focusTextBox != null && !focusTextBox.IsDisposed && focusTextBox.CanFocus)
+                {
+                    focusTextBox.Focus();
+                    int textLength = focusTextBox.Text == null ? 0 : focusTextBox.Text.Length;
+                    int selectionStart = previousSelectionStart < 0 ? textLength : Math.Max(0, Math.Min(previousSelectionStart, textLength));
+                    int selectionLength = Math.Max(0, Math.Min(previousSelectionLength, textLength - selectionStart));
+                    focusTextBox.SelectionStart = selectionStart;
+                    focusTextBox.SelectionLength = selectionLength;
+                }
+            }
+
             statusLabel.Text = BuildStatus();
         }
 
@@ -3416,6 +3512,7 @@ namespace PodexDesktop
             }, 0, 0);
             var search = new TextBox
             {
+                Name = "move-detail-search",
                 Dock = DockStyle.Fill,
                 BorderStyle = BorderStyle.FixedSingle,
                 Text = moveModuleFilterSearchText,
@@ -3424,7 +3521,7 @@ namespace PodexDesktop
             search.TextChanged += delegate
             {
                 moveModuleFilterSearchText = search.Text;
-                ApplyFilters();
+                ScheduleApplyFilters();
             };
             panel.Controls.Add(search, 1, 0);
             panel.SetColumnSpan(search, 3);
@@ -4111,6 +4208,7 @@ namespace PodexDesktop
             }, 0, row);
             var search = new TextBox
             {
+                Name = "ability-detail-search",
                 Dock = DockStyle.Fill,
                 BorderStyle = BorderStyle.FixedSingle,
                 Text = abilityFilterSearchText,
@@ -4119,7 +4217,7 @@ namespace PodexDesktop
             search.TextChanged += delegate
             {
                 abilityFilterSearchText = search.Text;
-                ApplyFilters();
+                ScheduleApplyFilters();
             };
             panel.Controls.Add(search, 1, row);
             panel.SetColumnSpan(search, 2);
@@ -4472,6 +4570,7 @@ namespace PodexDesktop
             }, 0, row);
             var search = new TextBox
             {
+                Name = "item-detail-search",
                 Dock = DockStyle.Fill,
                 BorderStyle = BorderStyle.FixedSingle,
                 Text = itemFilterSearchText,
@@ -4480,7 +4579,7 @@ namespace PodexDesktop
             search.TextChanged += delegate
             {
                 itemFilterSearchText = search.Text;
-                ApplyFilters();
+                ScheduleApplyFilters();
             };
             panel.Controls.Add(search, 1, row);
             panel.SetColumnSpan(search, 2);
