@@ -969,6 +969,13 @@ namespace PodexTools
                 List<object> games = RawList(raw, "games");
                 List<object> levels = RawList(raw, "levels");
                 List<object> learnsets = RawList(raw, "learnsets");
+                // Preserve existing zhCN descriptions from the current catalog file first,
+                // then let an existing output file override those values if it already exists.
+                PreservedZhCnDescriptions preservedDescriptions = LoadMergedPreservedZhCnDescriptions(options.DataPath, options.PreviewDataPath);
+                int preservedDescriptionCount = 0;
+                preservedDescriptionCount += ApplyPreservedZhCnDescriptions(moves, preservedDescriptions.MoveDescriptions);
+                preservedDescriptionCount += ApplyPreservedZhCnDescriptions(abilities, preservedDescriptions.AbilityDescriptions);
+                preservedDescriptionCount += ApplyPreservedZhCnDescriptions(items, preservedDescriptions.ItemDescriptions);
 
                 int maxPokemonDex = MaxRawId(pokemon, "nationalDex");
                 int maxMoveId = MaxRawId(moves, "id");
@@ -1081,7 +1088,9 @@ namespace PodexTools
                         skippedMovesMissingChinese++;
                         continue;
                     }
-                    moves.Add(BuildMove(row, moveNameMap, moveEffectMap, moveDescriptionOverrides, typeRefs));
+                    Dictionary<string, object> move = BuildMove(row, moveNameMap, moveEffectMap, moveDescriptionOverrides, typeRefs);
+                    preservedDescriptionCount += ApplyPreservedZhCnDescription(move, preservedDescriptions.MoveDescriptions);
+                    moves.Add(move);
                     addedMoves++;
                 }
 
@@ -1103,7 +1112,9 @@ namespace PodexTools
                         skippedAbilitiesMissingChinese++;
                         continue;
                     }
-                    abilities.Add(BuildAbility(row, abilityNameMap, abilityTextMap));
+                    Dictionary<string, object> ability = BuildAbility(row, abilityNameMap, abilityTextMap);
+                    preservedDescriptionCount += ApplyPreservedZhCnDescription(ability, preservedDescriptions.AbilityDescriptions);
+                    abilities.Add(ability);
                     addedAbilities++;
                 }
 
@@ -1137,7 +1148,9 @@ namespace PodexTools
                         skippedItemsMissingChinese++;
                         continue;
                     }
-                    items.Add(BuildItem(row, itemNameMap, itemTextMap, itemGenerations));
+                    Dictionary<string, object> item = BuildItem(row, itemNameMap, itemTextMap, itemGenerations);
+                    preservedDescriptionCount += ApplyPreservedZhCnDescription(item, preservedDescriptions.ItemDescriptions);
+                    items.Add(item);
                     addedItems++;
                 }
 
@@ -1147,6 +1160,7 @@ namespace PodexTools
                 int addedLearnsets = AddPreviewLearnsets(learnsets, pokemonMoves, newPokemonIdToLocalId, moves, versionGroupGameIds, machineLevelIds, usedVersionGroups, usedLevelIds, ref skippedLearnsets);
                 int addedGames = EnsurePreviewGames(games, usedVersionGroups, versionGroupGameIds);
                 int addedLevels = EnsurePreviewLevels(levels, usedLevelIds);
+                int manualDescriptionCount = ApplyManualZhCnDescriptionFiles(Path.GetDirectoryName(Path.GetFullPath(options.PreviewDataPath)), moves, abilities, items);
 
                 raw["pokemon"] = pokemon;
                 raw["evolutions"] = evolutions;
@@ -1164,7 +1178,7 @@ namespace PodexTools
                 {
                     Directory.CreateDirectory(outputDirectory);
                 }
-                File.WriteAllText(options.PreviewDataPath, serializer.Serialize(raw), Encoding.UTF8);
+                File.WriteAllText(options.PreviewDataPath, PrettyPrintJson(serializer.Serialize(raw)), Encoding.UTF8);
 
                 report.PreviewSummary["Preview data"] = Path.GetFullPath(options.PreviewDataPath);
                 report.PreviewSummary["Added Pokemon"] = addedPokemon.ToString();
@@ -1187,6 +1201,8 @@ namespace PodexTools
                 report.PreviewSummary["Skipped items missing Chinese"] = skippedItemsMissingChinese.ToString();
                 report.PreviewSummary["Missing Chinese report"] = string.IsNullOrWhiteSpace(options.MissingChinesePath) ? "--" : Path.GetFullPath(options.MissingChinesePath);
                 report.PreviewSummary["Chinese overrides loaded"] = overrides.Count.ToString();
+                report.PreviewSummary["Preserved zhCN descriptions"] = preservedDescriptionCount.ToString();
+                report.PreviewSummary["Manual zhCN description files applied"] = manualDescriptionCount.ToString();
                 report.PreviewSummary["Preview moves total"] = moves.Count.ToString();
                 report.PreviewSummary["Preview abilities total"] = abilities.Count.ToString();
                 report.PreviewSummary["Preview items total"] = items.Count.ToString();
@@ -2958,6 +2974,332 @@ namespace PodexTools
                 return int.TryParse(value, out parsed) ? (object)parsed : null;
             }
 
+            internal sealed class PreservedZhCnDescriptions
+            {
+                public PreservedZhCnDescriptions()
+                {
+                    MoveDescriptions = new Dictionary<int, string>();
+                    AbilityDescriptions = new Dictionary<int, string>();
+                    ItemDescriptions = new Dictionary<int, string>();
+                }
+
+                public Dictionary<int, string> MoveDescriptions { get; private set; }
+                public Dictionary<int, string> AbilityDescriptions { get; private set; }
+                public Dictionary<int, string> ItemDescriptions { get; private set; }
+            }
+
+            internal static PreservedZhCnDescriptions LoadPreservedZhCnDescriptions(string path)
+            {
+                var preserved = new PreservedZhCnDescriptions();
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return preserved;
+
+                var serializer = new JavaScriptSerializer
+                {
+                    MaxJsonLength = int.MaxValue,
+                    RecursionLimit = 1000000
+                };
+                var root = serializer.DeserializeObject(File.ReadAllText(path, Encoding.UTF8)) as Dictionary<string, object>;
+                if (root == null) return preserved;
+
+                CollectPreservedZhCnDescriptions(RawList(root, "moves"), preserved.MoveDescriptions);
+                CollectPreservedZhCnDescriptions(RawList(root, "abilities"), preserved.AbilityDescriptions);
+                CollectPreservedZhCnDescriptions(RawList(root, "items"), preserved.ItemDescriptions);
+                return preserved;
+            }
+
+            internal static PreservedZhCnDescriptions LoadMergedPreservedZhCnDescriptions(params string[] paths)
+            {
+                var merged = new PreservedZhCnDescriptions();
+                if (paths == null || paths.Length == 0) return merged;
+
+                foreach (string path in paths)
+                {
+                    PreservedZhCnDescriptions current = LoadPreservedZhCnDescriptions(path);
+                    MergePreservedZhCnDescriptions(merged.MoveDescriptions, current.MoveDescriptions);
+                    MergePreservedZhCnDescriptions(merged.AbilityDescriptions, current.AbilityDescriptions);
+                    MergePreservedZhCnDescriptions(merged.ItemDescriptions, current.ItemDescriptions);
+                }
+
+                return merged;
+            }
+
+            internal static int ApplyPreservedZhCnDescriptions(List<object> rows, Dictionary<int, string> preserved)
+            {
+                if (rows == null || preserved == null || preserved.Count == 0) return 0;
+
+                int applied = 0;
+                foreach (object value in rows)
+                {
+                    applied += ApplyPreservedZhCnDescription(value as Dictionary<string, object>, preserved);
+                }
+                return applied;
+            }
+
+            internal static int ApplyPreservedZhCnDescription(Dictionary<string, object> row, Dictionary<int, string> preserved)
+            {
+                if (row == null || preserved == null || preserved.Count == 0) return 0;
+
+                object idValue;
+                if (!row.TryGetValue("id", out idValue)) return 0;
+
+                int id = ObjectInt(idValue);
+                string preservedText;
+                if (id <= 0 || !preserved.TryGetValue(id, out preservedText) || string.IsNullOrWhiteSpace(preservedText)) return 0;
+
+                string current = RawLocalizedValue(row, "descriptions", "zhCN");
+                if (string.Equals(current, preservedText, StringComparison.Ordinal)) return 0;
+
+                SetRawLocalizedValue(row, "descriptions", "zhCN", preservedText);
+                return 1;
+            }
+
+            private static void CollectPreservedZhCnDescriptions(List<object> rows, Dictionary<int, string> preserved)
+            {
+                foreach (object value in rows)
+                {
+                    var row = value as Dictionary<string, object>;
+                    if (row == null) continue;
+
+                    object idValue;
+                    if (!row.TryGetValue("id", out idValue)) continue;
+
+                    int id = ObjectInt(idValue);
+                    string zhCN = RawLocalizedValue(row, "descriptions", "zhCN");
+                    if (id <= 0 || string.IsNullOrWhiteSpace(zhCN)) continue;
+                    preserved[id] = zhCN;
+                }
+            }
+
+            private static void MergePreservedZhCnDescriptions(Dictionary<int, string> target, Dictionary<int, string> source)
+            {
+                if (target == null || source == null || source.Count == 0) return;
+
+                foreach (KeyValuePair<int, string> pair in source)
+                {
+                    if (pair.Key <= 0 || string.IsNullOrWhiteSpace(pair.Value)) continue;
+                    target[pair.Key] = pair.Value;
+                }
+            }
+
+            internal static int ApplyManualZhCnDescriptionFiles(string directory, List<object> moves, List<object> abilities, List<object> items)
+            {
+                if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory)) return 0;
+
+                int applied = 0;
+                applied += ApplyManualZhCnDescriptions(moves, FindManualDescriptionFile(directory, "\u62db\u5f0f"), new[] { Encoding.UTF8 });
+                applied += ApplyManualZhCnDescriptions(abilities, FindManualDescriptionFile(directory, "\u7279\u6027"), new[] { Encoding.GetEncoding("GB18030"), Encoding.UTF8 });
+                applied += ApplyManualZhCnDescriptions(items, FindManualDescriptionFile(directory, "\u9053\u5177"), new[] { Encoding.UTF8 });
+                return applied;
+            }
+
+            private static string FindManualDescriptionFile(string directory, string keyword)
+            {
+                if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(keyword) || !Directory.Exists(directory)) return null;
+
+                foreach (string path in Directory.GetFiles(directory, "*.txt"))
+                {
+                    string name = Path.GetFileName(path);
+                    if (string.IsNullOrWhiteSpace(name)) continue;
+                    if (name.IndexOf(keyword, StringComparison.Ordinal) >= 0 &&
+                        name.IndexOf("\u63cf\u8ff0\u65b0", StringComparison.Ordinal) >= 0)
+                    {
+                        return path;
+                    }
+                }
+
+                return null;
+            }
+
+            private static int ApplyManualZhCnDescriptions(List<object> rows, string path, Encoding[] encodings)
+            {
+                if (rows == null || rows.Count == 0 || string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return 0;
+
+                Dictionary<string, string> descriptions = LoadManualZhCnDescriptionMap(path, encodings);
+                if (descriptions.Count == 0) return 0;
+
+                int applied = 0;
+                foreach (object value in rows)
+                {
+                    var row = value as Dictionary<string, object>;
+                    if (row == null) continue;
+
+                    string name = RawLocalizedValue(row, "names", "zhCN");
+                    string description;
+                    if (string.IsNullOrWhiteSpace(name) || !descriptions.TryGetValue(name, out description) || string.IsNullOrWhiteSpace(description)) continue;
+
+                    string current = RawLocalizedValue(row, "descriptions", "zhCN");
+                    if (string.Equals(current, description, StringComparison.Ordinal)) continue;
+
+                    SetRawLocalizedValue(row, "descriptions", "zhCN", description);
+                    applied++;
+                }
+
+                return applied;
+            }
+
+            private static Dictionary<string, string> LoadManualZhCnDescriptionMap(string path, Encoding[] encodings)
+            {
+                var descriptions = new Dictionary<string, string>();
+                string[] lines = ReadAllLinesWithEncodings(path, encodings);
+                foreach (string rawLine in lines)
+                {
+                    if (string.IsNullOrWhiteSpace(rawLine)) continue;
+
+                    string line = rawLine.Trim();
+                    int splitIndex = line.IndexOf('\uFF1A');
+                    if (splitIndex < 0) splitIndex = line.IndexOf(':');
+                    if (splitIndex <= 0 || splitIndex >= line.Length - 1) continue;
+
+                    string name = line.Substring(0, splitIndex).Trim();
+                    string description = line.Substring(splitIndex + 1).Trim();
+                    if (name.Length == 0 || description.Length == 0) continue;
+
+                    descriptions[name] = description;
+                }
+
+                return descriptions;
+            }
+
+            private static string[] ReadAllLinesWithEncodings(string path, Encoding[] encodings)
+            {
+                if (string.IsNullOrWhiteSpace(path)) return new string[0];
+
+                Exception lastError = null;
+                if (encodings != null)
+                {
+                    foreach (Encoding encoding in encodings)
+                    {
+                        if (encoding == null) continue;
+                        try
+                        {
+                            return File.ReadAllLines(path, encoding);
+                        }
+                        catch (Exception ex)
+                        {
+                            lastError = ex;
+                        }
+                    }
+                }
+
+                if (lastError != null) throw lastError;
+                return File.ReadAllLines(path, Encoding.UTF8);
+            }
+
+            private static string RawLocalizedValue(Dictionary<string, object> row, string key, string locale)
+            {
+                if (row == null || string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(locale)) return "";
+
+                object localizedValue;
+                if (!row.TryGetValue(key, out localizedValue) || localizedValue == null) return "";
+
+                var objectMap = localizedValue as Dictionary<string, object>;
+                if (objectMap != null)
+                {
+                    object value;
+                    return objectMap.TryGetValue(locale, out value) && value != null ? value.ToString() : "";
+                }
+
+                var stringMap = localizedValue as Dictionary<string, string>;
+                if (stringMap != null)
+                {
+                    string value;
+                    return stringMap.TryGetValue(locale, out value) ? value : "";
+                }
+
+                return "";
+            }
+
+            private static void SetRawLocalizedValue(Dictionary<string, object> row, string key, string locale, string value)
+            {
+                if (row == null || string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(locale)) return;
+
+                object localizedValue;
+                if (!row.TryGetValue(key, out localizedValue) || localizedValue == null)
+                {
+                    row[key] = new Dictionary<string, object> { { locale, value } };
+                    return;
+                }
+
+                var objectMap = localizedValue as Dictionary<string, object>;
+                if (objectMap != null)
+                {
+                    objectMap[locale] = value;
+                    return;
+                }
+
+                var stringMap = localizedValue as Dictionary<string, string>;
+                if (stringMap != null)
+                {
+                    stringMap[locale] = value;
+                    return;
+                }
+
+                row[key] = new Dictionary<string, object> { { locale, value } };
+            }
+
+            internal static string PrettyPrintJson(string json)
+            {
+                if (string.IsNullOrWhiteSpace(json)) return json;
+
+                var builder = new StringBuilder();
+                int depth = 0;
+                bool inString = false;
+                bool escaping = false;
+
+                foreach (char ch in json)
+                {
+                    if (escaping)
+                    {
+                        builder.Append(ch);
+                        escaping = false;
+                        continue;
+                    }
+
+                    if (inString)
+                    {
+                        builder.Append(ch);
+                        if (ch == '\\') escaping = true;
+                        else if (ch == '"') inString = false;
+                        continue;
+                    }
+
+                    switch (ch)
+                    {
+                        case '"':
+                            inString = true;
+                            builder.Append(ch);
+                            break;
+                        case '{':
+                        case '[':
+                            builder.Append(ch);
+                            builder.AppendLine();
+                            depth++;
+                            builder.Append(new string(' ', depth * 2));
+                            break;
+                        case '}':
+                        case ']':
+                            builder.AppendLine();
+                            depth = Math.Max(0, depth - 1);
+                            builder.Append(new string(' ', depth * 2));
+                            builder.Append(ch);
+                            break;
+                        case ',':
+                            builder.Append(ch);
+                            builder.AppendLine();
+                            builder.Append(new string(' ', depth * 2));
+                            break;
+                        case ':':
+                            builder.Append(": ");
+                            break;
+                        default:
+                            if (!char.IsWhiteSpace(ch)) builder.Append(ch);
+                            break;
+                    }
+                }
+
+                return builder.ToString();
+            }
+
             private static List<object> RawList(Dictionary<string, object> root, string key)
             {
                 object value;
@@ -3022,6 +3364,49 @@ namespace PodexTools
                 counts["items"] = items;
                 counts["evolutions"] = evolutions;
                 counts["learnsets"] = learnsets;
+            }
+        }
+
+        internal static class RegressionHooks
+        {
+            internal static Dictionary<int, string> LoadPreservedMoveDescriptions(string path)
+            {
+                return CatalogPreviewGenerator.LoadPreservedZhCnDescriptions(path).MoveDescriptions;
+            }
+
+            internal static Dictionary<int, string> LoadPreservedAbilityDescriptions(string path)
+            {
+                return CatalogPreviewGenerator.LoadPreservedZhCnDescriptions(path).AbilityDescriptions;
+            }
+
+            internal static Dictionary<int, string> LoadPreservedItemDescriptions(string path)
+            {
+                return CatalogPreviewGenerator.LoadPreservedZhCnDescriptions(path).ItemDescriptions;
+            }
+
+            internal static Dictionary<int, string> LoadMergedPreservedMoveDescriptions(string dataPath, string previewPath)
+            {
+                return CatalogPreviewGenerator.LoadMergedPreservedZhCnDescriptions(dataPath, previewPath).MoveDescriptions;
+            }
+
+            internal static Dictionary<int, string> LoadMergedPreservedAbilityDescriptions(string dataPath, string previewPath)
+            {
+                return CatalogPreviewGenerator.LoadMergedPreservedZhCnDescriptions(dataPath, previewPath).AbilityDescriptions;
+            }
+
+            internal static Dictionary<int, string> LoadMergedPreservedItemDescriptions(string dataPath, string previewPath)
+            {
+                return CatalogPreviewGenerator.LoadMergedPreservedZhCnDescriptions(dataPath, previewPath).ItemDescriptions;
+            }
+
+            internal static int ApplyPreservedZhCnDescription(Dictionary<string, object> row, Dictionary<int, string> preserved)
+            {
+                return CatalogPreviewGenerator.ApplyPreservedZhCnDescription(row, preserved);
+            }
+
+            internal static string PrettyPrintJson(string json)
+            {
+                return CatalogPreviewGenerator.PrettyPrintJson(json);
             }
         }
 

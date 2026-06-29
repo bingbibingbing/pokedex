@@ -4753,6 +4753,7 @@ namespace PodexDesktop
         {
             var types = root.types.OrderBy(t => t.id).ToList();
             var chart = root.typeChart == null ? null : (inverse ? root.typeChart.inverse : root.typeChart.normal);
+            string[] axisLabels = GetTypeEffectAxisLabels(inverse);
             if (chart == null || chart.Count == 0) return MakeBodyLabel("没有属性相性数据。");
 
             var table = new TableLayoutPanel
@@ -4795,9 +4796,12 @@ namespace PodexDesktop
             var defenseLabel = MakeMatrixHeaderCell("防御方", Color.FromArgb(96, 134, 220), Color.White);
             table.Controls.Add(defenseLabel, 2, 0);
             table.SetColumnSpan(defenseLabel, types.Count);
+            defenseLabel.Text = axisLabels[0];
 
             table.Controls.Add(MakeMatrixHeaderCell("攻击方", Color.FromArgb(210, 84, 82), Color.White), 0, 2);
             table.SetRowSpan(table.GetControlFromPosition(0, 2), types.Count);
+            Label attackSideLabel = table.GetControlFromPosition(0, 2) as Label;
+            if (attackSideLabel != null) attackSideLabel.Text = axisLabels[1];
 
             for (int i = 0; i < types.Count; i++)
             {
@@ -4819,6 +4823,13 @@ namespace PodexDesktop
             }
 
             return table;
+        }
+
+        internal static string[] GetTypeEffectAxisLabels(bool inverse)
+        {
+            return inverse
+                ? new[] { "攻击方", "防御方" }
+                : new[] { "防御方", "攻击方" };
         }
 
         private static Control MakeTypeMultiplierCell(double multiplier)
