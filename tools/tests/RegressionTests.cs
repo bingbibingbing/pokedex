@@ -24,6 +24,7 @@ namespace PodexRegressionTests
                 TestPreservedDescriptions();
                 TestPreservedDescriptionsFallbackAndOverlay();
                 TestPrettyPrintedJson();
+                TestBuildPrefersWorkspacePkData();
                 TestMoveFilterKeepsPokemonWhenLearnsetExistsInOlderGame();
                 TestTypeEffectAxisLabels();
                 summary = BuildRunSummary(null);
@@ -80,6 +81,7 @@ namespace PodexRegressionTests
                         "Checked:" + Environment.NewLine +
                         "- zhCN description preservation" + Environment.NewLine +
                         "- pretty-printed preview JSON" + Environment.NewLine +
+                        "- build prefers workspace pk data" + Environment.NewLine +
                         "- move filter keeps older learnset matches" + Environment.NewLine +
                         "- inverse type-effect axis labels"
                 };
@@ -198,6 +200,17 @@ namespace PodexRegressionTests
             string formatted = ImportData.RegressionHooks.PrettyPrintJson("{\"meta\":{\"count\":1},\"moves\":[{\"id\":1}]}");
             Assert(formatted.Contains(Environment.NewLine), "Expected preview JSON serializer helper to pretty-print with line breaks.");
             Assert(formatted.Contains("  \"moves\""), "Expected preview JSON serializer helper to indent child properties.");
+        }
+
+        private static void TestBuildPrefersWorkspacePkData()
+        {
+            string buildScriptPath = Path.Combine(Environment.CurrentDirectory, "build.ps1");
+            Assert(File.Exists(buildScriptPath), "Expected build.ps1 to exist in the desktop workspace root.");
+
+            string script = File.ReadAllText(buildScriptPath, Encoding.UTF8);
+            Assert(
+                script.Contains("pk\\pokemon.json"),
+                "Expected build script to prefer the workspace pk\\pokemon.json data source so packaged releases keep the maintained catalog and zhCN descriptions.");
         }
 
         private static void TestMoveFilterKeepsPokemonWhenLearnsetExistsInOlderGame()

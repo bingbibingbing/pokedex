@@ -7,17 +7,21 @@ param(
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$WorkspaceRoot = Split-Path -Parent $Root
 $Csc = Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe"
 $Source = Join-Path $Root "src\Program.cs"
 $Bin = Join-Path $Root "bin"
 $DataDir = Join-Path $Bin "data"
 $Out = Join-Path $Bin "PodexDesktop.exe"
+$WorkspacePkData = Join-Path $WorkspaceRoot "pk\pokemon.json"
 $DefaultData = Join-Path $Root "data\pokemon.json"
 $PreviewData = Join-Path $Root "artifacts\pokemon-catalog-preview.json"
 
 if (-not $DataPath) {
   if ($UsePreviewData) {
     $DataPath = $PreviewData
+  } elseif (Test-Path $WorkspacePkData) {
+    $DataPath = $WorkspacePkData
   } else {
     $DataPath = $DefaultData
   }
