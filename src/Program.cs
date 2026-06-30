@@ -68,6 +68,7 @@ namespace PodexDesktop
         private int moveFilterConditionSortColumn;
         private bool moveFilterConditionSortAscending = true;
         private int moveFilterGameId = -1;
+        private bool moveFilterGameExplicitlySelected;
         private string moveModuleFilterSearchText = "";
         private readonly MoveNumericFilter moveModulePowerFilter = new MoveNumericFilter();
         private readonly MoveNumericFilter moveModuleAccuracyFilter = new MoveNumericFilter();
@@ -505,6 +506,7 @@ namespace PodexDesktop
             learnsetsByMoveId.Clear();
             learnsetIndexesBuilt = false;
             moveFilterGameId = -1;
+            moveFilterGameExplicitlySelected = false;
 
             foreach (var p in root.pokemon)
             {
@@ -580,7 +582,7 @@ namespace PodexDesktop
                 {
                     AddIndexedLearnset(learnsetsByPokemonId, entry.pokemonId, entry);
                     AddIndexedLearnset(learnsetsByMoveId, entry.moveId, entry);
-                    if (entry.gameId > moveFilterGameId) moveFilterGameId = entry.gameId;
+                    if (moveFilterGameId <= 0 && entry.gameId > moveFilterGameId) moveFilterGameId = entry.gameId;
                 }
                 learnsetIndexesBuilt = true;
             }
@@ -1805,25 +1807,9 @@ namespace PodexDesktop
             if (moveFilterMoveIds.Count == 0) return true;
             EnsureLearnsetIndexes();
 
-            int gameId = CurrentMoveFilterGameId();
             List<LearnsetEntry> rows;
             if (!learnsetsByPokemonId.TryGetValue(p.legacyId, out rows)) return false;
-
-            foreach (int moveId in moveFilterMoveIds)
-            {
-                bool found = false;
-                foreach (var row in rows)
-                {
-                    if (row.gameId == gameId && row.moveId == moveId)
-                    {
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) return false;
-            }
-
-            return true;
+            return ResolveMoveFilterGameId(rows, moveFilterMoveIds, CurrentMoveFilterGameId(), moveFilterGameExplicitlySelected) > 0;
         }
 
         private int CurrentMoveFilterGameId()
@@ -1837,6 +1823,53 @@ namespace PodexDesktop
             }
             moveFilterGameId = gameId;
             return gameId;
+        }
+
+        private static int ResolveMoveFilterGameId(IEnumerable<LearnsetEntry> rows, IEnumerable<int> moveIds, int preferredGameId, bool strictGameSelection)
+        {
+            if (rows == null) return strictGameSelection ? preferredGameId : -1;
+
+            List<LearnsetEntry> rowList = rows as List<LearnsetEntry> ?? rows.ToList();
+            if (rowList.Count == 0) return strictGameSelection ? preferredGameId : -1;
+
+            List<int> requiredMoveIds = moveIds == null
+                ? new List<int>()
+                : moveIds.Where(id => id > 0).Distinct().ToList();
+
+            if (requiredMoveIds.Count == 0)
+            {
+                if (strictGameSelection) return preferredGameId;
+                if (rowList.Any(r => r.gameId == preferredGameId)) return preferredGameId;
+                return rowList.Select(r => r.gameId).DefaultIfEmpty(preferredGameId).Max();
+            }
+
+            if (LearnsetHasMovesInGame(rowList, requiredMoveIds, preferredGameId)) return preferredGameId;
+            if (strictGameSelection) return -1;
+
+            foreach (int gameId in rowList.Select(r => r.gameId).Distinct().OrderByDescending(id => id))
+            {
+                if (LearnsetHasMovesInGame(rowList, requiredMoveIds, gameId)) return gameId;
+            }
+
+            return -1;
+        }
+
+        private static bool LearnsetHasMovesInGame(List<LearnsetEntry> rows, List<int> moveIds, int gameId)
+        {
+            foreach (int moveId in moveIds)
+            {
+                bool found = false;
+                foreach (var row in rows)
+                {
+                    if (row.gameId == gameId && row.moveId == moveId)
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) return false;
+            }
+            return true;
         }
 
         private void AddPokemonRow(PokemonEntry p)
@@ -2487,7 +2520,9 @@ namespace PodexDesktop
             moveGameFilter.SelectedIndexChanged += delegate
             {
                 var selected = moveGameFilter.SelectedItem as IdOption;
-                if (selected == null || selected.Id == moveFilterGameId) return;
+                if (selected == null) return;
+                moveFilterGameExplicitlySelected = true;
+                if (selected.Id == moveFilterGameId) return;
                 moveFilterGameId = selected.Id;
                 ApplyFilters();
             };
@@ -4085,9 +4120,11 @@ namespace PodexDesktop
 
         private int MovePokemonGridGameId(List<LearnsetEntry> rows)
         {
-            int gameId = CurrentMoveFilterGameId();
-            if (rows.Any(r => r.gameId == gameId)) return gameId;
-            return rows.Select(r => r.gameId).DefaultIfEmpty(gameId).Max();
+            return ResolveMoveFilterGameId(
+                rows,
+                rows == null ? null : rows.Select(r => r.moveId).Distinct(),
+                CurrentMoveFilterGameId(),
+                moveFilterGameExplicitlySelected);
         }
 
         private static void StyleMovePokemonGridRow(DataGridViewRow row, PokemonEntry pokemon)

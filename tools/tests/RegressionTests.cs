@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using System.Windows.Forms;
 using PodexDesktop;
 using PodexTools;
+using DesktopLearnsetEntry = PodexDesktop.LearnsetEntry;
+using DesktopPokemonEntry = PodexDesktop.PokemonEntry;
 
 namespace PodexRegressionTests
 {
@@ -21,6 +24,7 @@ namespace PodexRegressionTests
                 TestPreservedDescriptions();
                 TestPreservedDescriptionsFallbackAndOverlay();
                 TestPrettyPrintedJson();
+                TestMoveFilterKeepsPokemonWhenLearnsetExistsInOlderGame();
                 TestTypeEffectAxisLabels();
                 summary = BuildRunSummary(null);
             }
@@ -76,6 +80,7 @@ namespace PodexRegressionTests
                         "Checked:" + Environment.NewLine +
                         "- zhCN description preservation" + Environment.NewLine +
                         "- pretty-printed preview JSON" + Environment.NewLine +
+                        "- move filter keeps older learnset matches" + Environment.NewLine +
                         "- inverse type-effect axis labels"
                 };
             }
@@ -195,6 +200,34 @@ namespace PodexRegressionTests
             Assert(formatted.Contains("  \"moves\""), "Expected preview JSON serializer helper to indent child properties.");
         }
 
+        private static void TestMoveFilterKeepsPokemonWhenLearnsetExistsInOlderGame()
+        {
+            using (var form = new MainForm())
+            {
+                SetPrivateField(form, "moveFilterGameId", 36);
+                SetPrivateField(form, "learnsetsLoaded", true);
+                SetPrivateField(form, "learnsetIndexesBuilt", true);
+
+                var moveIds = (List<int>)GetPrivateField(form, "moveFilterMoveIds");
+                moveIds.Clear();
+                moveIds.Add(403);
+
+                var learnsetsByPokemonId = (Dictionary<int, List<DesktopLearnsetEntry>>)GetPrivateField(form, "learnsetsByPokemonId");
+                learnsetsByPokemonId.Clear();
+                learnsetsByPokemonId[468] = new List<DesktopLearnsetEntry>
+                {
+                    new DesktopLearnsetEntry { pokemonId = 468, gameId = 28, levelId = 1, moveId = 403 }
+                };
+
+                bool matches = (bool)InvokePrivateMethod(
+                    form,
+                    "PokemonMatchesMoveFilter",
+                    new object[] { new DesktopPokemonEntry { legacyId = 468 } });
+
+                Assert(matches, "Expected move filter to keep Togekiss when Air Slash exists in an older learnset version.");
+            }
+        }
+
         private static void TestTypeEffectAxisLabels()
         {
             string[] normal = MainForm.GetTypeEffectAxisLabels(false);
@@ -208,6 +241,27 @@ namespace PodexRegressionTests
         {
             var descriptions = row["descriptions"] as Dictionary<string, string>;
             return descriptions != null && descriptions.ContainsKey("zhCN") ? descriptions["zhCN"] : "";
+        }
+
+        private static object GetPrivateField(object target, string name)
+        {
+            FieldInfo field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field == null) throw new InvalidOperationException("Missing private field: " + name);
+            return field.GetValue(target);
+        }
+
+        private static void SetPrivateField(object target, string name, object value)
+        {
+            FieldInfo field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field == null) throw new InvalidOperationException("Missing private field: " + name);
+            field.SetValue(target, value);
+        }
+
+        private static object InvokePrivateMethod(object target, string name, object[] args)
+        {
+            MethodInfo method = target.GetType().GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic);
+            if (method == null) throw new InvalidOperationException("Missing private method: " + name);
+            return method.Invoke(target, args);
         }
 
         private static void Assert(bool condition, string message)
