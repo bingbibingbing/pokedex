@@ -4096,11 +4096,7 @@ namespace PodexDesktop
             EnsureLearnsetIndexes();
             if (!learnsetsByMoveId.TryGetValue(move.id, out rows)) return;
 
-            int gameId = MovePokemonGridGameId(rows);
-            foreach (var row in rows
-                .Where(r => r.gameId == gameId)
-                .OrderBy(r => r.pokemonId)
-                .ThenBy(r => LearnLevelSort(r.levelId)))
+            foreach (var row in MovePokemonGridRows(rows))
             {
                 PokemonEntry pokemon = FindPokemon(row.pokemonId);
                 if (pokemon == null) continue;
@@ -4118,13 +4114,19 @@ namespace PodexDesktop
             ResizeMovePokemonGridColumns(grid);
         }
 
-        private int MovePokemonGridGameId(List<LearnsetEntry> rows)
+        private static IEnumerable<LearnsetEntry> MovePokemonGridRows(List<LearnsetEntry> rows)
         {
-            return ResolveMoveFilterGameId(
-                rows,
-                rows == null ? null : rows.Select(r => r.moveId).Distinct(),
-                CurrentMoveFilterGameId(),
-                moveFilterGameExplicitlySelected);
+            if (rows == null || rows.Count == 0) return Enumerable.Empty<LearnsetEntry>();
+
+            return rows
+                .GroupBy(r => r.pokemonId)
+                .SelectMany(g =>
+                {
+                    int latestGameId = g.Max(r => r.gameId);
+                    return g.Where(r => r.gameId == latestGameId);
+                })
+                .OrderBy(r => r.pokemonId)
+                .ThenBy(r => LearnLevelSort(r.levelId));
         }
 
         private static void StyleMovePokemonGridRow(DataGridViewRow row, PokemonEntry pokemon)

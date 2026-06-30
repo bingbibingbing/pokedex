@@ -7,7 +7,9 @@ using System.Windows.Forms;
 using PodexDesktop;
 using PodexTools;
 using DesktopLearnsetEntry = PodexDesktop.LearnsetEntry;
+using DesktopMoveEntry = PodexDesktop.MoveEntry;
 using DesktopPokemonEntry = PodexDesktop.PokemonEntry;
+using DesktopTypeRef = PodexDesktop.TypeRef;
 
 namespace PodexRegressionTests
 {
@@ -25,7 +27,9 @@ namespace PodexRegressionTests
                 TestPreservedDescriptionsFallbackAndOverlay();
                 TestPrettyPrintedJson();
                 TestBuildPrefersWorkspacePkData();
+                TestBuildPrefersCatalogPreviewRelease();
                 TestMoveFilterKeepsPokemonWhenLearnsetExistsInOlderGame();
+                TestMoveDetailGridKeepsPokemonWhenLaterGameDropsMove();
                 TestTypeEffectAxisLabels();
                 summary = BuildRunSummary(null);
             }
@@ -82,7 +86,9 @@ namespace PodexRegressionTests
                         "- zhCN description preservation" + Environment.NewLine +
                         "- pretty-printed preview JSON" + Environment.NewLine +
                         "- build prefers workspace pk data" + Environment.NewLine +
+                        "- build prefers catalog preview release" + Environment.NewLine +
                         "- move filter keeps older learnset matches" + Environment.NewLine +
+                        "- move detail grid keeps older move learners" + Environment.NewLine +
                         "- inverse type-effect axis labels"
                 };
             }
@@ -213,6 +219,19 @@ namespace PodexRegressionTests
                 "Expected build script to prefer the workspace pk\\pokemon.json data source so packaged releases keep the maintained catalog and zhCN descriptions.");
         }
 
+        private static void TestBuildPrefersCatalogPreviewRelease()
+        {
+            string buildScriptPath = Path.Combine(Environment.CurrentDirectory, "build.ps1");
+            string script = File.ReadAllText(buildScriptPath, Encoding.UTF8);
+
+            Assert(
+                script.Contains("$DataPath -eq $WorkspacePkData"),
+                "Expected build script release-name logic to recognize the maintained workspace pk data source.");
+            Assert(
+                script.Contains("PodexDesktop-catalog-preview"),
+                "Expected build script to keep using the catalog preview release directory for maintained expanded-catalog builds.");
+        }
+
         private static void TestMoveFilterKeepsPokemonWhenLearnsetExistsInOlderGame()
         {
             using (var form = new MainForm())
@@ -238,6 +257,61 @@ namespace PodexRegressionTests
                     new object[] { new DesktopPokemonEntry { legacyId = 468 } });
 
                 Assert(matches, "Expected move filter to keep Togekiss when Air Slash exists in an older learnset version.");
+            }
+        }
+
+        private static void TestMoveDetailGridKeepsPokemonWhenLaterGameDropsMove()
+        {
+            using (var form = new MainForm())
+            {
+                SetPrivateField(form, "moveFilterGameId", 36);
+                SetPrivateField(form, "moveFilterGameExplicitlySelected", false);
+                SetPrivateField(form, "learnsetsLoaded", true);
+                SetPrivateField(form, "learnsetIndexesBuilt", true);
+
+                var learnsetsByMoveId = (Dictionary<int, List<DesktopLearnsetEntry>>)GetPrivateField(form, "learnsetsByMoveId");
+                learnsetsByMoveId.Clear();
+                learnsetsByMoveId[403] = new List<DesktopLearnsetEntry>
+                {
+                    new DesktopLearnsetEntry { pokemonId = 25, gameId = 36, levelId = 1, moveId = 403 },
+                    new DesktopLearnsetEntry { pokemonId = 468, gameId = 28, levelId = 1, moveId = 403 }
+                };
+
+                var pokemonByLegacyId = (Dictionary<int, DesktopPokemonEntry>)GetPrivateField(form, "pokemonByLegacyId");
+                pokemonByLegacyId.Clear();
+                pokemonByLegacyId[25] = new DesktopPokemonEntry
+                {
+                    legacyId = 25,
+                    nationalDex = 25,
+                    names = new Dictionary<string, string> { { "zhCN", "皮卡丘" } },
+                    types = new List<DesktopTypeRef> { new DesktopTypeRef { names = new Dictionary<string, string> { { "zhCN", "电" } } } }
+                };
+                pokemonByLegacyId[468] = new DesktopPokemonEntry
+                {
+                    legacyId = 468,
+                    nationalDex = 468,
+                    names = new Dictionary<string, string> { { "zhCN", "波克基斯" } },
+                    types = new List<DesktopTypeRef>
+                    {
+                        new DesktopTypeRef { names = new Dictionary<string, string> { { "zhCN", "妖精" } } },
+                        new DesktopTypeRef { names = new Dictionary<string, string> { { "zhCN", "飞行" } } }
+                    }
+                };
+
+                var grid = (DataGridView)InvokePrivateMethod(form, "MakeMovePokemonGrid", new object[0]);
+                InvokePrivateMethod(form, "FillMovePokemonGrid", new object[] { grid, new DesktopMoveEntry { id = 403 } });
+
+                bool foundTogekiss = false;
+                foreach (DataGridViewRow row in grid.Rows)
+                {
+                    if (row.Cells["name"].Value as string == "波克基斯")
+                    {
+                        foundTogekiss = true;
+                        break;
+                    }
+                }
+
+                Assert(foundTogekiss, "Expected the move detail Pokemon grid to keep Togekiss when a later game drops Air Slash for it.");
             }
         }
 

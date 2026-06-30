@@ -27,8 +27,28 @@ if (-not $DataPath) {
   }
 }
 
+function Resolve-ComparablePath([string]$PathValue) {
+  if (-not $PathValue) {
+    return $null
+  }
+
+  if (Test-Path -LiteralPath $PathValue) {
+    return (Resolve-Path -LiteralPath $PathValue).Path
+  }
+
+  return [System.IO.Path]::GetFullPath($PathValue)
+}
+
+$ResolvedDataPath = Resolve-ComparablePath $DataPath
+$ResolvedWorkspacePkData = Resolve-ComparablePath $WorkspacePkData
+$ResolvedPreviewData = Resolve-ComparablePath $PreviewData
+
 if (-not $ReleaseName) {
-  if ($UsePreviewData) {
+  if ($UsePreviewData -or
+      $DataPath -eq $WorkspacePkData -or
+      $ResolvedDataPath -eq $ResolvedWorkspacePkData -or
+      $DataPath -eq $PreviewData -or
+      $ResolvedDataPath -eq $ResolvedPreviewData) {
     $ReleaseName = "PodexDesktop-catalog-preview"
   } else {
     $ReleaseName = "PodexDesktop"
